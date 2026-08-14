@@ -1,0 +1,8 @@
+{
+  "name": "com.dsh.manager",
+  "description": "DSH Manager native host — manages the dsh web process lifecycle",
+  "path": "__HOST_CMD_PATH__",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"],
+  "allowed_extensions": ["__EXTENSION_ID__", "__GECKO_ID__"]
+}

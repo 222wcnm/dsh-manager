@@ -1,0 +1,23 @@
+# NOTICE
+
+DSH Manager — Third-party notices and brand-asset attributions.
+
+## Brand assets
+
+- The whale logo / brand-logo, the extension icons, and the popup design tokens
+  (`--dsw-*`) are derived from DeepSeek Harness (deepseek-harness, MIT,
+  Copyright 2026 DeepSeek). Copyright in those assets belongs to DeepSeek
+  (深度求索).
+- Upstream verification (2026-08-14): the GitHub root `LICENSE` was verified
+  verbatim as MIT, "Copyright (c) 2026 DeepSeek". The whale graphic originates
+  from the official favicon assets (`apps/web/public/favicon.svg`,
+  `website/public/favicon.svg`). Token naming/styling rules are documented in
+  upstream `docs/web-styling.md`.
+- Trademark rights are **not** transferred with the MIT license. This project
+  is an **unofficial community tool** and has no affiliation with, or
+  endorsement from, DeepSeek (深度求索).
+
+## Planned replacement
+
+- A replacement for the official whale logo is planned. Until then, the DeepSeek
+  whale graphic is used solely for non-official visual identification.

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSH Manager — preview</title>
+  <link rel="stylesheet" href="../../extension/popup.css">
+</head>
+<body>
+  <div class="panel">
+    <!-- 状态行：分层圆点（复刻 Web UI _dot 组件）+ 鲸鱼 logo + 标题 + 设置 -->
+    <div class="status-row">
+      <svg class="brand-logo" width=182 height=24 viewBox="0 0 182 24" fill=none aria-hidden=true><path d="M68.416 18.2447H67.0501V16.1272H68.416C69.2619 16.1272 70.1166 15.9163 70.6671 15.3304C71.2181 14.7444 71.426 13.8455 71.426 12.9471C71.426 12.0487 71.2268 11.1498 70.6671 10.5643C70.1083 9.97831 69.2619 9.76744 68.416 9.76744C67.5701 9.76744 66.7154 9.97831 66.1639 10.5643C65.6129 11.1503 65.4049 12.0487 65.4049 12.9471V21.6435H63.009V7.6582H65.4049V8.54883H65.8442C65.8918 8.49393 65.9394 8.44728 65.9875 8.40064C66.5871 7.85353 67.5049 7.6582 68.4072 7.6582C69.8212 7.6582 71.2341 8.00998 72.1607 8.98662C73.0868 9.96325 73.4143 11.4632 73.4143 12.9558C73.4143 14.4485 73.0785 15.9406 72.1607 16.925C71.2424 17.9094 69.8212 18.2457 68.416 18.2457V18.2447Z" fill=currentColor></path><path d="M31.9551 8.03497H33.3204V10.1525H31.9551C31.1087 10.1525 30.2545 10.3633 29.7035 10.9493C29.1525 11.5353 28.945 12.4342 28.945 13.3326C28.945 14.231 29.1447 15.1294 29.7035 15.7154C30.2623 16.3014 31.1087 16.5122 31.9551 16.5122C32.8015 16.5122 33.6562 16.3014 34.2072 15.7154C34.7582 15.1294 34.9657 14.231 34.9657 13.3326V4.62842H37.3611V18.6219H34.9657V17.7313H34.5264C34.4783 17.7857 34.4307 17.8329 34.3826 17.8795C33.7835 18.4261 32.8652 18.6219 31.9629 18.6219C30.5494 18.6219 29.136 18.2707 28.2099 17.294C27.2838 16.3174 26.9563 14.817 26.9563 13.3248C26.9563 11.8327 27.2916 10.34 28.2099 9.35561C29.136 8.37898 30.5494 8.03497 31.9551 8.03497Z" fill=currentColor></path><path d="M49.3786 13.1431V13.9948H42.9984V12.2996H47.2305C47.1348 11.6825 46.9113 11.1043 46.5119 10.682C45.9371 10.0727 45.0503 9.85409 44.1723 9.85409C43.2943 9.85409 42.4076 10.0727 41.8328 10.682C41.258 11.2913 41.05 12.2213 41.05 13.1435C41.05 14.0658 41.2575 15.003 41.8328 15.6046C42.4076 16.2061 43.2939 16.433 44.1723 16.433C45.0508 16.433 45.9371 16.2143 46.5119 15.6046C46.5916 15.5186 46.6635 15.4248 46.7354 15.331H49.0992C48.8918 16.0657 48.5643 16.7299 48.0691 17.2454C47.111 18.2531 45.6339 18.6205 44.1723 18.6205C42.7108 18.6205 41.2337 18.2531 40.2756 17.2454C39.7804 16.7299 39.4529 16.0657 39.2455 15.331H41.6093C41.6812 15.4248 41.7531 15.5186 41.8328 15.6046C42.4076 16.2143 43.2939 16.433 44.1723 16.433C45.0503 16.433 45.9367 16.2059 46.5119 15.6046C46.6017 15.5076 46.6762 15.4065 46.7465 15.3049H49.0992C48.8918 16.0395 48.5604 16.7037 48.0691 17.2454C47.111 18.2531 45.6339 18.6205 44.1723 18.6205Z" fill=currentColor></path><path d="M5.56738 18.9277L2.01172 7.98047H4.01465L6.56445 15.9941L9.1123 7.98047H11.0176L13.5674 15.9941L16.1172 7.98047H18.1201L14.5645 18.9277H12.5596L10.0117 11.0361L7.46387 18.9277H5.56738Z" fill=currentColor></path><path d="M21.6172 18.9277L17.5859 7.98047H19.5889L22.5938 16.3164L25.5986 7.98047H27.6016L23.5703 18.9277H21.6172Z" fill=currentColor></path><path d="M58.9609 18.9277L54.9297 7.98047H56.9326L59.9375 16.3164L62.9424 7.98047H64.9453L60.9141 18.9277H58.9609Z" fill=currentColor></path></svg>
+      <span id="dot" class="dot dot-stopped" aria-hidden="true"></span>
+      <span class="title">dsh web</span>
+      <button id="btn-refresh" class="icon-btn" title="刷新状态" aria-label="刷新状态">
+        <svg class="icon-refresh" width=16 height=16 viewBox="0 0 16 16" fill=none xmlns=http://www.w3.org/2000/svg aria-hidden=true><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill=currentColor></path></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" title="设置" aria-label="设置">
+        <svg width=16 height=16 viewBox="0 0 16 16" fill=none xmlns=http://www.w3.org/2000/svg><g clip-path=url(#clip0_1450_63327)><path d="M14.0861 5.51366C13.8717 5.0575 13.588 4.58542 13.2889 4.18108C13.208 4.07172 13.1596 4.04373 13.0243 4.03054C12.4277 3.97255 11.8245 4.05527 11.2269 3.9972C10.7224 3.94816 10.3133 3.71661 10.0115 3.30919C9.66986 2.84777 9.43973 2.31343 9.09824 1.85234C9.01771 1.74365 8.96805 1.71589 8.83354 1.70282C8.29432 1.65044 7.70402 1.65061 7.16656 1.70282C7.03205 1.71589 6.98239 1.74365 6.90186 1.85234C6.56067 2.31303 6.33025 2.84774 5.98855 3.30919C5.68681 3.71661 5.27774 3.94816 4.77317 3.9972C4.17564 4.05527 3.57239 3.97255 2.97585 4.03054C2.84046 4.04373 2.79208 4.07172 2.71115 4.18108C2.41212 4.58542 2.12835 5.0575 1.91403 5.51366C1.85299 5.64359 1.85286 5.7018 1.91403 5.8319C2.14865 6.33077 2.49748 6.76892 2.73237 7.26854C2.9594 7.7515 2.96041 8.24717 2.73338 8.73044C2.49837 9.23061 2.14891 9.66837 1.91403 10.1681C1.85291 10.2982 1.85299 10.3564 1.91403 10.4863C2.12856 10.9429 2.41185 11.4142 2.71115 11.8189C2.79208 11.9283 2.84046 11.9563 2.97585 11.9694C3.57239 12.0274 4.17564 11.9447 4.77317 12.0028C5.27774 12.0518 5.68681 12.2834 5.98855 12.6908C6.33024 13.1522 6.56037 13.6866 6.90186 14.1476C6.98239 14.2563 7.03205 14.2841 7.16656 14.2972C7.70402 14.3494 8.29432 14.3495 8.83354 14.2972C8.96805 14.2841 9.01771 14.2563 9.09824 14.1476C9.43944 13.687 9.66985 13.1522 10.0115 12.6908C10.3133 12.2834 10.7224 12.0518 11.2269 12.0028C11.8244 11.9447 12.4271 12.0275 13.0243 11.9694C13.1596 11.9563 13.208 11.9283 13.2889 11.8189C13.5891 11.4131 13.872 10.942 14.0861 10.4863C14.1471 10.3564 14.1472 10.2982 14.0861 10.1681C13.8513 9.66861 13.5017 9.23061 13.2667 8.73044C13.0397 8.24717 13.0407 7.7515 13.2677 7.26854C13.5026 6.7689 13.8513 6.33106 14.0861 5.8319C14.1472 5.7018 14.1471 5.64359 14.0861 5.51366ZM15.3035 6.40373C15.0685 6.90359 14.7188 7.34119 14.4841 7.84037C14.4231 7.97025 14.423 8.02855 14.4841 8.15861C14.7189 8.65833 15.0685 9.09611 15.3035 9.59626C15.5308 10.0801 15.5308 10.5744 15.3035 11.0582C15.052 11.5933 14.7225 12.1426 14.37 12.6191C14.0685 13.0265 13.6581 13.259 13.1536 13.3081C12.5566 13.366 11.9541 13.2835 11.3573 13.3414C11.2228 13.3545 11.1731 13.3823 11.0926 13.491C10.7511 13.9521 10.521 14.4866 10.1805 14.9481C10.0999 15.0568 10.0503 15.0845 9.91575 15.0976C9.3774 15.1499 8.7867 15.1496 8.24965 15.0976C8.11514 15.0845 8.06548 15.0568 7.98495 14.9481C7.64344 14.4866 7.41331 13.9521 7.07182 13.491C6.77008 13.0836 6.36101 12.8521 5.85644 12.803C5.25891 12.7449 4.65566 12.8276 4.05912 12.7697C3.92373 12.7566 3.87535 12.7286 3.79442 12.6192C3.44199 12.1441 3.11174 11.5942 2.85986 11.0583C2.63263 10.5745 2.63242 10.0802 2.85986 9.59632C3.09482 9.09631 3.44425 8.65866 3.67921 8.15905C3.74023 8.02911 3.74035 7.97081 3.67921 7.84075C3.44432 7.34118 3.09482 6.90359 2.85986 6.40379C2.63262 5.91999 2.63262 5.4257 2.85986 4.94189C3.11151 4.40681 3.44103 3.85751 3.79352 3.38102C4.09506 2.97359 4.50545 2.74105 5.00996 2.69199C5.60649 2.63406 6.20906 2.71658 6.80633 2.65863C6.94084 2.64556 6.9905 2.6178 7.07103 2.50911C7.41255 2.048 7.64265 1.51363 7.98431 1.05196C8.06484 0.943268 8.1145 0.915502 8.24901 0.902435C8.78606 0.8501 9.37676 0.850262 9.91511 0.902435C10.0496 0.915502 10.0993 0.943268 10.1798 1.05196C10.5215 1.51362 10.7516 2.048 11.0931 2.50911C11.1736 2.6178 11.2233 2.64556 11.3578 2.65863C11.9551 2.71655 12.5576 2.63407 13.1542 2.69199C13.6587 2.74105 14.0691 2.97359 14.3706 3.38102C14.7231 3.8575 15.0527 4.40681 15.3035 4.94189C15.5307 5.4257 15.5309 5.91999 15.3035 6.40373Z" fill=currentColor></path><path d="M9.13764 7.99999C9.13764 7.3715 8.62855 6.8624 8.00005 6.8624C7.37155 6.8624 6.86246 7.3715 6.86246 7.99999C6.86246 8.62849 7.37155 9.13759 8.00005 9.13759C8.62855 9.13759 9.13764 8.62849 9.13764 7.99999ZM10.4834 7.99999C10.4834 9.37126 9.37132 10.4833 8.00005 10.4833C6.62878 10.4833 5.51674 9.37126 5.51674 6.62873C6.62878 5.51669 8.00005 5.51669C9.37132 5.51669 10.4834 6.62873 10.4834 7.99999Z" fill=currentColor></path></g><defs><clippath id=clip0_1450_63327><rect width=16 height=16 fill=currentColor></rect></clippath></defs></svg>
+      </button>
+    </div>
+
+    <!-- URL 行（running / external 时显示） -->
+    <div id="url-row" class="url-row hidden">
+      <span id="url-text" class="url-text"></span>
+      <span id="uptime-text" class="uptime-text"></span>
+    </div>
+
+    <!-- 主操作行 -->
+    <div class="btn-row">
+      <button id="btn-start" class="btn primary"><span class="spinner" aria-hidden="true"></span><span class="btn-label">启动</span></button>
+      <button id="btn-stop" class="btn danger"><span class="spinner" aria-hidden="true"></span><span class="btn-label">停止</span></button>
+      <button id="btn-restart" class="btn outline"><span class="spinner" aria-hidden="true"></span><span class="btn-label">重启</span></button>
+    </div>
+
+    <!-- 次操作行：接管（仅 external 显示）+ 打开 Web UI -->
+    <div class="btn-row">
+      <button id="btn-adopt" class="btn primary hidden"><span class="spinner" aria-hidden="true"></span><span class="btn-label">接管</span></button>
+      <button id="btn-open" class="btn link wide">打开 Web UI</button>
+    </div>
+
+    <!-- 操作进度（点击后乐观反馈） -->
+    <div id="progress" class="progress hidden" aria-live="polite">
+      <div class="progress-bar"><div class="progress-bar-fill"></div></div>
+      <div id="progress-text" class="progress-text"></div>
+    </div>
+
+    <!-- 状态明细 -->
+    <div id="detail-line" class="detail">状态：—</div>
+
+    <!-- 错误面板 -->
+    <div id="error-panel" class="error hidden">
+      <div id="error-text" class="error-text"></div>
+      <button id="btn-copy-log" class="btn outline small hidden">复制日志</button>
+    </div>
+
+    <!-- 操作结果 toast -->
+    <div id="toast" class="toast toast-hidden" role="status" aria-live="polite">
+      <span id="toast-text"></span>
+    </div>
+
+    <!-- 底部提示 -->
+    <div id="hint" class="hint">安装 dsh-lifecycle 插件可优雅停机</div>
+
+    <!-- 设置面板（内嵌展开视图） -->
+    <div id="settings-panel" class="settings hidden">
+      <div class="settings-title">设置</div>
+      <label class="field">
+        <span class="field-label">端口</span>
+        <input id="set-port" type="number" min="1" max="65535" step="1" value="3080">
+      </label>
+      <label class="field">
+        <span class="field-label">Profile</span>
+        <input id="set-profile" type="text" spellcheck="false" value="web">
+      </label>
+      <label class="field check">
+        <span class="field-label">自动打开 Web UI</span>
+        <input id="set-autoopen" type="checkbox">
+      </label>
+      <label class="field">
+        <span class="field-label">徽标刷新间隔（秒）</span>
+        <input id="set-badge" type="number" min="30" max="3600" step="1" value="30">
+      </label>
+      <div id="settings-error" class="settings-error hidden"></div>
+      <div class="settings-actions">
+        <button id="btn-save" class="btn primary">保存</button>
+        <button id="btn-cancel" class="btn outline">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 预览桩：模拟 chrome.* API（仅 _preview.html 用） =====
+    const st = location.hash.replace('#', '') || 'stopped';
+    const results = {
+      stopped: { ok: true, result: { state: 'stopped', source: null, pid: null, port: null, url: null, version: 'unknown', startedAt: null, health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      running: { ok: true, result: { state: 'running', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now() - 62 * 60 * 1000, health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      external: { ok: true, result: { state: 'external', source: 'external', pid: 54321, port: 4080, url: 'http://127.0.0.1:4080', version: 'unknown', startedAt: null, externalCount: 1, health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      starting: { ok: true, result: { state: 'starting', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now(), health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      'busy-restart': { ok: true, result: { state: 'starting', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now(), health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      'busy-stop': { ok: true, result: { state: 'running', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now(), health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      toast: { ok: true, result: { state: 'running', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now() - 62 * 60 * 1000, health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      'm2-health': { ok: true, result: { state: 'running', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now() - 62 * 60 * 1000, lifecycle: true, health: { ok: true, pid: 12345, uptimeMs: 754 * 1000, port: 3080, nodeVersion: 'v22.16.0' }, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      'm2-noplugin': { ok: true, result: { state: 'running', source: 'managed', pid: 12345, port: 3080, url: 'http://127.0.0.1:3080', version: '0.1.0-rc.6', startedAt: Date.now() - 62 * 60 * 1000, lifecycle: false, health: null, logFile: 'C:\\dsh-manager\\logs\\dsh-web.log' } },
+      error: { ok: false, result: null, error: { code: 'PORT_BUSY', message: '端口 3080 已被其他程序占用', logTail: 'dsh web: http://127.0.0.1:3080\nError: listen EADDRINUSE' } },
+    };
+    window.chrome = {
+      storage: {
+        local: {
+          get: (obj, cb) => cb({ settings: { port: 3080, profile: 'web', autoOpen: true, badgeInterval: 30 } }),
+          set: (obj, cb) => cb && cb(),
+        },
+      },
+      runtime: {
+        sendMessage: (msg) => Promise.resolve(results[st] || results.stopped),
+      },
+      tabs: { create: () => {} },
+    };
+  </script>
+  <script src="../../extension/popup.js"></script>
+  <script>
+    // 设置面板状态：hash 带 settings 前缀时打开
+    if (st.startsWith('settings')) {
+      setTimeout(() => {
+        const p = document.getElementById('settings-panel');
+        if (p) p.classList.remove('hidden');
+      }, 100);
+    }
+    // 动效/点击反馈快照（popup.js 顶层 let 为全局词法绑定，可直接覆写）：
+    // busy-restart = 重启进行中（阶段：新进程启动中），busy-stop = 停止进行中，toast = 完成确认
+    if (st === 'busy-restart' || st === 'busy-stop') {
+      setTimeout(() => {
+        state = st === 'busy-restart' ? 'starting' : 'stopping';
+        pending = { action: st === 'busy-restart' ? 'restart' : 'stop', phase: st === 'busy-restart' ? 'starting' : 'stopping', atMs: Date.now() - 9000, ack: false };
+        render();
+      }, 200);
+    }
+    if (st === 'toast') {
+      setTimeout(() => {
+        showToast('重启完成，dsh web 已就绪', 'success');
+      }, 200);
+    }
+  </script>
+</body>
+</html>

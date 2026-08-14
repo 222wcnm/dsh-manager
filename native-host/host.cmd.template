@@ -1,0 +1,13 @@
+@echo off
+REM ============================================================
+REM DSH Manager - host.cmd 模板（文档参考，install.ps1 会现场生成实际文件）
+REM
+REM 占位符说明：
+REM   __NODE_EXE__  → node.exe 的绝对路径（含引号包裹，兼容含空格的路径）
+REM   __HOST_JS__    → native-host\host.js 的绝对路径（含引号包裹）
+REM   %*             → 透传 Native Messaging 传入的全部参数
+REM
+REM 实际 host.cmd 由安装器写入 %LOCALAPPDATA%\dsh-manager\host\host.cmd，
+REM 本模板仅供文档参考，请勿直接改名为 host.cmd 使用。
+REM ============================================================
+"__NODE_EXE__" "__HOST_JS__" %*

@@ -1,0 +1,369 @@
+/* ============================================================================
+ * DSH Manager — 日志查看页样式（extension/logs.html）
+ * 视觉规范：与 dsh Web UI 设计系统对齐（design §8.2，设计令牌同 popup.css）。
+ * 日志区使用等宽字体与行号无关的纯文本渲染，杜绝任何 HTML 注入面。
+ * ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 静态色板（与 dsh 前端一致，见 popup.css） ---- */
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-150: rgb(233, 236, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-100: rgb(228, 237, 253);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-amber-600: rgb(221, 134, 41);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  /* ---- alias 层（与 Web UI 同名，便于对照） ---- */
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-50);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
+  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration: 0.2s;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.hidden {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ---- 顶栏 ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 分层圆点（复刻 Web UI _dot 组件，同 popup.css） */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsw-static-neutral-bluish-400);
+  transition: color var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.dot:before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.1;
+}
+
+.dot:after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  right: 20%;
+  bottom: 20%;
+  left: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot-stopped { color: var(--dsw-static-neutral-bluish-400); }
+.dot-running { color: var(--dsw-alias-state-success-primary); }
+.dot-busy { color: var(--dsw-alias-state-warn-primary); }
+.dot-error { color: var(--dsw-alias-state-error-primary); }
+
+@keyframes dsh-dot-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.dot-busy:after {
+  animation: dsh-dot-pulse 1.2s var(--ds-ease-in-out) infinite;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.follow input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+
+/* ---- 按钮（与 Web UI Button 组件同风格，同 popup.css） ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.btn.small {
+  flex: none;
+  height: 28px;
+  padding: 4px 10px;
+}
+
+.btn.primary {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-static-neutral-bluish-00);
+  font-weight: 500;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.btn.outline {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.btn.outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ---- 错误横幅 ---- */
+.error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(236, 19, 19, 0.25);
+  border-radius: 12px;
+  background: var(--dsw-static-red-50);
+  font-size: 12px;
+}
+
+.error-text {
+  flex: 1;
+  color: var(--dsw-alias-state-error-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- 日志区 ---- */
+.log-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+}
+
+.log-pre {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-static-neutral-bluish-50);
+  color: var(--dsw-static-neutral-bluish-750);
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Liberation Mono",
+    Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: auto;
+}
+
+/* 日志缺口标记（轮转/截断后新旧内容不连续） */
+.gap-marker {
+  color: var(--dsw-alias-state-warn-primary);
+  font-style: italic;
+}
+
+/* ---- 底部状态 ---- */
+.footer {
+  flex: none;
+  padding: 8px 16px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- toast（同 popup.css） ---- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  max-width: 80vw;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 6px 24px rgba(15, 17, 21, 0.12);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 10;
+  opacity: 1;
+  transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.toast-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgb(240, 253, 244);
+  color: rgb(21, 128, 61);
+}
+
+.toast-error {
+  border-color: rgba(236, 19, 19, 0.3);
+  background: var(--dsw-static-red-50);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.toast-info {
+  border-color: rgba(65, 118, 230, 0.35);
+  background: var(--dsw-static-deepseek-100);
+  color: var(--dsw-static-deepseek-500);
+}
+
+/* ---- 无障碍：用户偏好减少动效时关闭动画 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

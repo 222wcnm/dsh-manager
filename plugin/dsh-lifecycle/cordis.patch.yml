@@ -1,0 +1,9 @@
+# dsh-lifecycle bundle patch — mounts the plugin as a host row.
+#
+# A `dsh plugin --profile web add` install only activates a package as a
+# profile layer when the package declares `dsh.bundle.patch` (this file).
+# The row below inserts the plugin into the tree; its `webServer`/`appExit`
+# injections are declared by the plugin's own `export const inject`.
+- insert:
+    - id: dsh-lifecycle
+      name: 'dsh-lifecycle'

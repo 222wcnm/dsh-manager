@@ -1,0 +1,601 @@
+/* ============================================================================
+ * DSH Manager — popup 样式
+ * 视觉规范：与 dsh Web UI 设计系统对齐（design §8.2）。
+ * 设计令牌（--dsw-*）取自 dsh 前端构建产物（浅色主题），值经仓库内
+ * 5f6ed241-486a-478e-8fe2-b5340b9d92fd.htm 存档核验，与 Web GUI 一致。
+ * ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 静态色板（与 dsh 前端一致） ---- */
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-150: rgb(233, 236, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-100: rgb(228, 237, 253);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-amber-600: rgb(221, 134, 41);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  /* ---- alias 层（与 Web UI 同名，便于对照） ---- */
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-50);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
+  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+  --dsw-state-ongoing: var(--dsw-static-deepseek-450);
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration: 0.2s;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 320px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.panel {
+  padding: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---- 状态行 ---- */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 分层圆点：复刻 Web UI _dot 组件（外圈 10% 光晕 + 内实心） */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsw-static-neutral-bluish-400); /* 默认灰 */
+  transition: color var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.dot:before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.1;
+}
+
+.dot:after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  right: 20%;
+  bottom: 20%;
+  left: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot-stopped { color: var(--dsw-static-neutral-bluish-400); }
+.dot-running { color: var(--dsw-alias-state-success-primary); }
+.dot-external { color: var(--dsw-alias-state-business-primary); }
+.dot-error { color: var(--dsw-alias-state-error-primary); }
+
+.dot-busy {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+@keyframes dsh-dot-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.dot-busy:after {
+  animation: dsh-dot-pulse 1.2s var(--ds-ease-in-out) infinite;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 品牌鲸鱼 logo（内联 SVG 取自 Web UI 侧栏左上角，182×24） */
+.brand-logo {
+  height: 18px;
+  width: auto;
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 图标按钮（ghost，与 Web UI hHd-Xa_iconButton 一致） */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.icon-btn:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.icon-btn:active {
+  transform: scale(0.9);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.icon-btn svg {
+  display: block;
+}
+
+/* 刷新按钮内箭头图标：pending 时转圈（复用 dsh-spin） */
+.icon-btn.is-pending {
+  cursor: progress;
+}
+
+.icon-btn.is-pending .icon-refresh {
+  animation: dsh-spin 0.8s linear infinite;
+}
+
+/* ---- URL 行 ---- */
+.url-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.url-text {
+  color: var(--dsw-alias-state-business-primary);
+  word-break: break-all;
+}
+
+.uptime-text {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---- 按钮（与 Web UI Button 组件同风格） ---- */
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 4px;
+  height: 32px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 按压反馈：轻微缩放（Web UI 同款缓动） */
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/* 键盘焦点环（可访问性） */
+.btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+/* 操作进行中：按钮内转圈 + 进度光标 */
+.spinner {
+  display: none;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+
+.btn.is-pending {
+  cursor: progress;
+}
+
+.btn.is-pending .spinner {
+  display: inline-block;
+  animation: dsh-spin 0.8s linear infinite;
+}
+
+@keyframes dsh-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 主按钮：品牌黑底白字（--dsw-alias-brand-primary），字重与 Web UI 主按钮一致 */
+.btn.primary {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-static-neutral-bluish-00);
+  font-weight: 500;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+/* 描边按钮 */
+.btn.outline {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.btn.outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* 危险操作：红字描边，悬停红底 */
+.btn.danger {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* 链接感按钮（打开 Web UI）：业务蓝字描边 */
+.btn.link {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.btn.link:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.btn.wide {
+  flex: 1;
+}
+
+.btn.small {
+  flex: none;
+  height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+/* ---- 状态明细 ---- */
+.detail {
+  margin-top: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+/* ---- 操作进度（点击后乐观反馈） ---- */
+@keyframes dsh-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.progress {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  animation: dsh-fade-in var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dsw-static-neutral-bluish-100);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  animation: dsh-indeterminate 1.2s var(--ds-ease-in-out) infinite;
+}
+
+@keyframes dsh-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.progress-text {
+  margin-top: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 面板/行淡入（URL 行、错误面板、设置面板出现时） */
+.url-row:not(.hidden),
+.error:not(.hidden),
+.settings:not(.hidden) {
+  animation: dsh-fade-in var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+/* ---- 操作结果 toast ---- */
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 6px 24px rgba(15, 17, 21, 0.12);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 10;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out),
+    transform var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.toast-hidden {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+.toast-out {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgb(240, 253, 244);
+  color: rgb(21, 128, 61);
+}
+
+.toast-error {
+  border-color: rgba(236, 19, 19, 0.3);
+  background: var(--dsw-static-red-50);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.toast-info {
+  border-color: rgba(65, 118, 230, 0.35);
+  background: var(--dsw-static-deepseek-100);
+  color: var(--dsw-static-deepseek-500);
+}
+
+/* ---- 无障碍：用户偏好减少动效时关闭动画 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- 错误面板 ---- */
+.error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(236, 19, 19, 0.25);
+  border-radius: 12px;
+  background: var(--dsw-static-red-50);
+  font-size: 12px;
+}
+
+.error-text {
+  color: var(--dsw-alias-state-error-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- 底部提示 + 日志入口（M3） ---- */
+.hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.hint {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.btn.hint-logs {
+  margin-top: 0;
+}
+
+/* ---- 设置面板 ---- */
+.settings {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.settings-title {
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.field-label {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.field input[type="number"],
+.field input[type="text"] {
+  width: 120px;
+  padding: 4px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    box-shadow var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.field input[type="number"]:focus,
+.field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.field.check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+
+.settings-error {
+  margin-bottom: 8px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
+/* 无效输入：红边框 */
+.field input.field-invalid {
+  border-color: var(--dsw-alias-state-error-primary);
+  box-shadow: 0 0 0 2px rgba(236, 19, 19, 0.15);
+}
+
+/* 校验失败抖动（一次 0.3s，左右衰减） */
+@keyframes dsh-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(1px); }
+}
+
+.field input.field-shake {
+  animation: dsh-shake 0.3s var(--ds-ease-in-out);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

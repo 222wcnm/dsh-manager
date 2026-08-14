@@ -1,0 +1,26 @@
+{
+  "name": "dsh-lifecycle",
+  "version": "0.1.0",
+  "description": "DSH lifecycle plugin: a loopback-fenced graceful-shutdown endpoint (POST /_lifecycle/shutdown) and a health endpoint (GET /_lifecycle/health), injected via the dsh webServer and appExit services.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.0-rc.6 <0.2.0"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

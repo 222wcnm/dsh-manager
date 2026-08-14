@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "DSH Manager",
+  "version": "0.1.0",
+  "description": "一键管理 DeepSeek Harness (dsh) web 服务生命周期（启动/停止/重启）。需要本机安装 dsh 与随附的 Native Messaging 宿主。Manage the DeepSeek Harness (dsh) web service lifecycle (start/stop/restart) from your browser. Requires dsh and the bundled native host installed on this machine.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm9iz/nfS3jqkW4egDIHkS4FF3qmC621+O2ZTVFN160om1BSy0xUo6sN9X1Ozj7NCJwy9uKiMr+BnsJBMwcERl96a2vSMRF4/uvpikhh+Ha1dYWCSja0qtpfoEq0ENEcmZTHek6nUVwjb9hHK+W8fsErsfONBYb4dNJqWPl7vDdvcFBzU2YKLRqnhVzCGYwyL5CAvHpSU0tgyh2bc5KYAfFv2aMIp8Y2L3cb6oa4f1GN5DJNRk3tf6zzl+t4ysKbMTdv7otSI671guKrsRojA4VBMuYAxCuF+9gznLZtlr9+CyRNpEJ5qlbP0T08BFVg3r2IvY/oF5kgycEECACn6nwIDAQAB",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dsh-manager@local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["storage", "nativeMessaging", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DSH Manager"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "js": ["content/panel.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}

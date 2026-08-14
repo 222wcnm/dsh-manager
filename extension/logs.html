@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSH Manager — dsh web 日志</title>
+  <link rel="stylesheet" href="logs.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span id="dot" class="dot dot-stopped" aria-hidden="true"></span>
+      <span class="title">dsh web 日志</span>
+    </div>
+    <div class="topbar-actions">
+      <label class="follow" title="每 2 秒自动刷新日志尾部">
+        <input id="follow" type="checkbox" checked>
+        <span>自动刷新</span>
+      </label>
+      <button id="btn-load-earlier" class="btn outline small">加载更早</button>
+      <button id="btn-copy" class="btn outline small">复制全部</button>
+      <button id="btn-refresh" class="btn primary small">刷新</button>
+    </div>
+  </header>
+
+  <div id="error-panel" class="error hidden">
+    <div id="error-text" class="error-text"></div>
+    <button id="btn-retry" class="btn outline small hidden">重试</button>
+  </div>
+
+  <div id="log-area" class="log-area">
+    <pre id="log-pre" class="log-pre">正在加载日志…</pre>
+  </div>
+
+  <footer id="footer" class="footer">—</footer>
+
+  <div id="toast" class="toast toast-hidden" role="status" aria-live="polite">
+    <span id="toast-text"></span>
+  </div>
+
+  <script src="logs.js"></script>
+</body>
+</html>

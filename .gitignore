@@ -1,0 +1,34 @@
+# ---- Node / 依赖 ----
+node_modules/
+
+# ---- 日志与运行时数据 ----
+*.log
+logs/
+*.pid
+run/
+
+# ---- 一次性/可再生产物 ----
+_audit.json
+tools/visual-audit/_audit.json
+tools/visual-audit/shots/*.png
+tools/verify-ui/shots/*
+.smoke/
+.smoke-real/
+.review/
+
+# ---- 扩展 ID / 安装副产物（可由 keygen.js / compute-id.js / install.ps1 现场生成）----
+extension/extension-key.json
+native-host/.extension-id.json
+native-host/com.dsh.manager.reg
+EXTENSION_ID.txt
+
+# ---- 系统文件 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 环境 / 编辑器 ----
+.env
+.vscode/
+.idea/
+*.swp

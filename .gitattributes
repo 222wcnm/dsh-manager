@@ -1,0 +1,4 @@
+# 跨平台行尾约定：
+# - shell 脚本必须 LF：WSL/dash 下 CRLF 会把 \r 混进变量与协议边界（曾有实测教训）
+# - 其余文本按仓库 autocrlf 默认处理
+*.sh text eol=lf
