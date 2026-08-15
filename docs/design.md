@@ -82,7 +82,7 @@ DeepSeek Harness（以下简称 dsh，npm 包 `@deepseek-ai/dsh`）的 Web 界�
 | 宿主语言 | Node.js（与 dsh 同生态） | 复用本机已装的 Node；无需额外运行时 |
 | 宿主生命周期 | **无状态短命进程**（一次连接一个请求/响应） | MV3 service worker 会被回收，长连接必然断；无状态 + pidfile 才是可靠状态源（见 §4.2） |
 | 状态存储 | 本机文件（`%LOCALAPPDATA%\dsh-manager\run\`）+ 端口探测 | 不依赖任何驻留进程 |
-| dsh 启动方式 | `node.exe + <npm-global>/node_modules/@deepseek-ai/dsh/lib/bin.js`，detached + `windowsHide` | 避免 `.cmd` shim 的 shell 包装与转义问题；无控制台窗口闪现 |
+| dsh 启动方式 | `node.exe + <npm-global>/node_modules/@deepseek-ai/dsh/lib/bin.js`；**Windows 经隐藏控制台载体**（wscript + `Run(cmd,0,False)`，§6.3 第 5 步），POSIX 直接 spawn + 日志文件重定向 | 避免 `.cmd` shim 的 shell 包装与转义问题；stdout/stderr 写入日志文件；隐藏控制台让 dsh 的子进程继承（命令执行不再闪窗）且桌面无常驻窗口（§6.3 第 5 步） |
 | 停止方式（v1） | `taskkill /PID <pid> /T /F` | Windows 无法从外部触发 SIGINT 处理器（F7）；数据安全由 F8 兜底 |
 | 停止方式（M2，插件存在时） | `dsh-lifecycle` 插件：`POST /_lifecycle/shutdown` → 官方 dispose（F12），失败回退 taskkill | 优雅停机唯一可行路径（§7） |
 
@@ -313,18 +313,20 @@ Popup 对 `starting` / `stopping` 的处理：收到 ack 后进入轮询（每 1
 2. 抢锁（§4.2.5）。
 3. 探测端口占用：TCP connect 到 `127.0.0.1:port`，能连上且不是我们的 run 记录 → `PORT_BUSY`（顺带做 dsh 指纹探测：若占用者就是 dsh web，错误消息明确提示「该端口已有一个外部运行的 dsh web」，引导用户在原终端停止或更换端口）。**M4：`port 0`（动态端口）跳过占用探测**——端口由 OS 分配，不存在占用。
 4. 解析 dsh 启动器（见 §6.4），校验版本 ≥ 最低支持版本。
-5. spawn：
+5. spawn（POSIX 直接 spawn；Windows 隐藏控制台载体，见下方 bullet）：
    ```
    node.exe <npm-global>\node_modules\@deepseek-ai\dsh\lib\bin.js
         --profile web --host 127.0.0.1 --port 3080 [extraArgs...]
-   options: { detached: true, windowsHide: true,
-              stdio: ['ignore', logFd, logFd],  // stdout+stderr 追加写日志文件
-              env: { ...process.env } }          // 透传 DSH_HOME 等；host 不注入 0.0.0.0
+   POSIX options: { detached: true, stdio: ['ignore', logFd, logFd], env: { ...process.env } }
+   Windows（M5.5）：wscript.exe + launch-hidden.vbs（BASE_DIR 下运行时自生成），命令经
+             环境变量 DSH_MANAGER_LAUNCH_CMD 传递，VBS 以 `cmd /d /c call` 执行并
+             `1>> 日志 2>&1` 重定向；wscript 2s 内非 0 退出即载体失败（INTERNAL）
    ```
-   - 日志文件先 `mkdir -p` 并追加打开（`fs.open(..., 'a')`），宿主退出后 fd 随宿主关闭，不影响 dsh 后续写入。
-   - **不用 `stdio:'ignore'` 也不用 pipe**：pipe 会在宿主退出后产生 EPIPE 风险；日志文件同时是 M3「查看日志」与「解析实际端口」的数据源（F5）。
-6. 写 run 记录（先写 `.tmp` 再 `rename`，内容含 pid、port、profile、startedAt、version、cmdline；M4 新增 `requestedPort` 与 `logStartBytes`（spawn 时刻日志字节偏移））。
-7. 释放锁；轮询端口（500ms 间隔，最长 30s）。就绪 → `running`；超时 → 返回 `START_TIMEOUT` + 日志尾部（此时**不杀进程**，交由用户查看日志后决定；进程可能仍在后台最终就绪）。
+   - 日志文件先 `mkdir -p`：POSIX 用追加打开的 fd（`fs.open(..., 'a')`），宿主退出后 fd 随宿主关闭，不影响 dsh 后续写入；Windows 由 cmd 重定向追加（语义一致）。
+   - **不用 pipe**：pipe 会在宿主退出后产生 EPIPE 风险；日志文件同时是 M3「查看日志」与「解析实际端口」的数据源（F5）。
+   - **隐藏控制台载体（M5.5，2026-08-15 实现）**：Windows 下 `detached:true` 由 libuv 无条件加 `DETACHED_PROCESS`（子进程既不继承也不新建控制台），且受限令牌下 `CREATE_NO_WINDOW` 不可用（`STATUS_DLL_INIT_FAILED`，`@deepseek-ai/dsh-sandbox-windows-acl` README 记载）——直接 spawn 的 dsh 必然无控制台，其每次执行命令都会新建一闪而过的终端窗口。M5.5 改为**隐藏控制台载体**启动：宿主先写 `launch-hidden.vbs`（`BASE_DIR` 下，运行时自生成），再 `wscript.exe` 执行 `WScript.Shell.Run(cmd, 0, False)`——`windowStyle=0`（SW_HIDE）使 dsh 获得一个**存在但从不显示**的控制台：其命令子进程继承该控制台（不再闪窗），桌面也无常驻窗口。**必须显式 `cmd /d /c call` 执行**：`WshShell.Run` 对引号开头（exe 路径）的命令直接 CreateProcess，`1>> 日志 2>&1` 会被当成普通参数丢失（实测发现，2026-08-15）；`call` 同时避开 cmd /c 的剥引号规则；`%` 按 cmd 规则转义为 `%%`。载体进程（wscript→cmd）即刻退出，dsh 独立存活。**实测核验（EnumWindows 窗口枚举）**：载体下 dsh 控制台窗口存在但不可见（IsWindowVisible=false），其子进程零新窗口（对比直接 spawn 时子进程弹可见新终端，2026-08-15）。POSIX 无控制台概念，维持直接 spawn。若 dsh 上游修复受限令牌限制（沙箱可直接 `CREATE_NO_WINDOW`），可移除载体回归直接 spawn。
+6. 写 run 记录（先写 `.tmp` 再 `rename`，内容含 pid、port、profile、startedAt、version、cmdline；M4 新增 `requestedPort` 与 `logStartBytes`（spawn 时刻日志字节偏移））。**M5.5 时序**：记录在「端口就绪 + PID 已知」后才写——Windows 载体不回传 PID，端口就绪后经端口表反查（`findPidByPort`，带 200ms 短重试）；启动期间（端口就绪前）无记录，status 显示 stopped（快速连点由第 2 步的锁兜底，见第 7 步）。失败路径（`START_TIMEOUT` / 动态端口未报告）**尽力回写**：POSIX 直接用 spawn 已知的 pid；Windows 端口已知时经端口表反查、未知时经进程表匹配 bin+`--port 0`（尽力而为）；匹配失败仅记日志——实例可能仍在运行，刷新 popup 后可按 external「接管」停止。
+7. 释放锁（**M5.5：锁保持到 run 记录写入完成之后**——启动窗口内并发 start 被锁挡下，`--port 0`（无占用探测）亦被覆盖，防双开；轮询在锁内进行）；轮询端口（500ms 间隔，最长 30s）。就绪 → `running`；超时 → 返回 `START_TIMEOUT` + 日志尾部（此时**不杀进程**，交由用户查看日志后决定；进程可能仍在后台最终就绪）。
 8. `unref()` child 句柄，宿主随时可安全退出。
 9. **M4 动态端口（`--port 0`）**：第 7 步之前先轮询日志（仅解析 `logStartBytes` 之后的追加内容，排除历史实例干扰）匹配 `dsh web: http://127.0.0.1:<port>` URL 行（真实 dsh 绑定后打印实际端口；port 0 占位行跳过），发现后**回填 run 记录实际端口**再按常规探活；30s 未发现 → `START_TIMEOUT`。status 遇 port 0 占位记录同样尝试回填（自愈），回填前对外报 `port:null` + `requestedPort:0`、状态 `starting`。
 
@@ -370,7 +372,7 @@ Popup 对 `starting` / `stopping` 的处理：收到 ack 后进入轮询（每 1
 
 宿主内按序尝试，第一个成功者写入 run 记录：
 
-1. **首选（无 shell）**：`npm prefix -g` → `<prefix>\node_modules\@deepseek-ai\dsh\lib\bin.js`，用 `process.execPath` 直接执行。无 shell 转义、无窗口、错误码干净。
+1. **首选（无 shell）**：`npm prefix -g` → `<prefix>\node_modules\@deepseek-ai\dsh\lib\bin.js`，用 `process.execPath` 直接执行。无 shell 转义、无窗口闪现（有一常驻控制台，见 §6.3 第 5 步）、错误码干净。
 2. 回退（含 shell）：`where dsh` 命中 `%APPDATA%\npm\dsh.cmd` → `spawn('dsh.cmd', args, { shell: true, windowsHide: true })`（Node ≥ 18.20 要求 `.cmd` 必须 `shell: true`）。
 3. 都失败 → `DSH_NOT_FOUND`，响应中附排查提示（`npm root -g` 结果）。
 
@@ -611,7 +613,7 @@ export function apply(ctx) {
 2. 所有 native 请求经 SW 中转（§8.3），popup 不直接 `connectNative`（避免 popup 关闭瞬间断开连接、杀死宿主中断操作）。
 3. `starting` 成功后自动 `chrome.tabs.create` 打开 Web UI（可在设置关闭）。
 4. 错误态展示错误码对应文案（§6.2 表）+「复制日志」按钮（日志内容由宿主在错误响应中带回尾部 20 行）。
-5. 设置面板（popup 内二级视图）：port（默认 3080，**0 = 自动分配动态端口**，M4）、profile（默认 web）、host（固定 127.0.0.1，不可改，v1）、自动打开 UI 开关、徽标刷新间隔。存储于 `chrome.storage.local`（本机相关，不用 sync）。
+5. 设置面板（popup 内二级视图）：port（默认 3080，**0 = 自动分配动态端口**，M4）、profile（默认 web）、host（固定 127.0.0.1，不可改，v1）、自动打开 UI 开关、徽标刷新间隔。存储于 `chrome.storage.local`（本机相关，不用 sync）。保存成功 toast 提示「设置已保存」。注：原「显示 dsh 控制台窗口」开关及其灰字说明均已移除——开关本身无效（实测 detached 下 `windowsHide` 不生效），说明文案已过时（M5.5 隐藏控制台载体已消除命令执行闪窗，见 §6.3 第 5 步）。
 6. popup 富状态与提示（M2）：status 返回 `lifecycle:true` 时明细行展示 `health` 富状态（uptime 格式化 + nodeVersion），底部提示「优雅停机已启用（dsh-lifecycle）」；`lifecycle:false` 时提示「安装 dsh-lifecycle 插件可优雅停机」；stop 完成 toast 按 `stopMethod` 区分「已优雅停止 / 已强制停止（未检测到插件或优雅超时）」。
 7. `external` 状态（§6.6）：蓝点 + 「外部运行」；「接管」与「打开 Web UI」可用（启动/停止/重启禁用）；URL 行展示实际地址；明细行展示 PID 与「外部启动，点击接管后由扩展管理」；`externalCount > 1` 时追加实例数提示。
 8. 「接管」（§6.7）：以 status 结果中的 `{pid, port}` 调 `adopt`；成功 → 立即刷新为 running/managed，按钮恢复标准三键；失败按错误码展示（`EXTERNAL_UNMANAGED` 提示实例已变化，重新打开 popup 刷新）。
@@ -688,10 +690,11 @@ popup「查看日志」打开的全页日志查看器，视觉延续同一套 `-
 行为规范（`extension/content/panel.js`，样式内联于脚本）：
 
 1. **指纹激活**：仅当 `document.title` 匹配 `DeepSeek Harness`（与 §6.6 指纹同源）才注入面板，其余本地页面不注入；`window` 级标志防重复注入。
-2. **Shadow DOM 隔离**：宿主节点 + open shadow root，样式 `<style>` 内联在 shadow root 内（页面 CSS 不穿透 shadow，双向零干扰）；颜色复用经 CSS 自定义属性继承的 `--dsw-*` 令牌并带 fallback 值。
-3. **全部动作经 SW 中转 native 宿主**（复用 §8.3 既有 `{type:'native'}` 通道，面板自身不直连 `/_lifecycle`）：2s 轮询 `status`（页面隐藏时暂停）；「停止」两步确认（首次点击进入 3s 待确认态，再点才执行——面板所在页面即将随 dsh 关闭，防误触）；「重启」按宿主 restart 语义（优雅停优先 + 原参数重放，§6.3）；动作在途按钮禁用 + spinner + 内联状态文案。
-4. **不读取页面内容**：面板只读 `document.title` 做指纹判断，追加自身节点，绝不修改 dsh 页面 DOM。
-5. 收起态为右下角状态小徽章（圆点 + 文本），点击展开面板；`prefers-reduced-motion` 关闭动画。
+2. **归属验证（仅托管实例可操作）**：页面身份 ≠ 进程归属——指纹激活只说明页面是 dsh 的 UI，不说明其进程由扩展管理（终端/WSL 启动的实例同样满足指纹）。面板每轮 `status` 后做归属判定：仅当返回 `running` 且 `port` 与当前页面端口一致时，「停止/重启」才可用；`stopped`、端口不匹配、外部实例一律降级为只读——状态行显示「此实例不由本扩展管理（请在扩展 popup 中操作）」，徽章显示「未托管」，两按钮禁用（`stopped` 时不再允许「重启=启动」，防止在非本扩展实例页面上误拉起新实例）。**圆点颜色随展示语义而非原始状态**：绿仅表示「本页托管实例运行中」；外部实例（`external` 且端口匹配）为蓝；未托管/已停止/端口不匹配一律中性灰；启动/停止中为琥珀脉冲；「状态获取失败」为红（仅连续失败后，见第 4 条）。
+3. **Shadow DOM 隔离**：宿主节点 + open shadow root，样式 `<style>` 内联在 shadow root 内（页面 CSS 不穿透 shadow，双向零干扰）；颜色复用经 CSS 自定义属性继承的 `--dsw-*` 令牌并带 fallback 值。
+4. **全部动作经 SW 中转 native 宿主**（复用 §8.3 既有 `{type:'native'}` 通道，面板自身不直连 `/_lifecycle`）：2s 轮询 `status`（页面隐藏时暂停）；「停止」两步确认（首次点击进入 3s 待确认态，再点才执行——面板所在页面即将随 dsh 关闭，防误触）；「重启」按宿主 restart 语义（优雅停优先 + 原参数重放，§6.3）；动作在途按钮禁用 + spinner + 内联状态文案。**状态失败容错**：单次 status 失败不立即报红——MV3 SW 休眠/唤醒竞态会让单次消息失败、下一轮即恢复，故连续 3 次失败（约 6s）才显示红色「状态获取失败」，期间保留上次成功状态；扩展在 `chrome://extensions` 重载/更新后，已打开页面里的旧内容脚本上下文失效（`chrome.runtime.id` 为空，孤儿脚本）——此时停止轮询，显示中性灰提示「扩展已重载或更新，请刷新页面恢复」（徽章「已断开」），不再永久误报红错。
+5. **不读取页面内容**：面板只读 `document.title` 做指纹判断，追加自身节点，绝不修改 dsh 页面 DOM。
+6. 收起态为右下角状态小徽章（圆点 + 文本），点击展开面板；**展开时胶囊位置不变**——面板体绝对定位在胶囊上方弹出（`position:absolute; bottom:calc(100%+8px)`），而非把胶囊顶上去；`prefers-reduced-motion` 关闭动画。
 
 安全（§12.2 补充）：面板是扩展自有 content script（非页面脚本），消息只发给本扩展 SW；停止/重启走宿主全套防护（PID 复用校验、`EXTERNAL_UNMANAGED` 保护、锁、优雅降级链）；不新增任何权限与 host_permissions（回环匹配已有）。
 
@@ -803,34 +806,37 @@ console.log(JSON.stringify({ key, id }, null, 2));
 
 ```
 dsh-manager/
+├─ AGENTS.md / README.md / CHANGELOG.md / CHROMEWEBSTORE.md / CONTRIBUTING.md
 ├─ docs/
-│  └─ design.md                  # 本文档
+│  ├─ design.md                  # 本文档
+│  └─ publish.md / upstream-feedback.md / open-source-review.md …
 ├─ extension/                    # 浏览器扩展（可直接「加载已解压的扩展程序」）
 │  ├─ manifest.json
-│  ├─ background.js
-│  ├─ popup.html
-│  ├─ popup.css
-│  ├─ popup.js
-│  ├─ logs.html                   # M3 日志查看页
-│  ├─ logs.css
-│  ├─ logs.js
+│  ├─ background.js / popup.html / popup.css / popup.js
+│  ├─ logs.html / logs.css / logs.js      # M3 日志查看页
 │  ├─ content/
 │  │  └─ panel.js                 # M3 页面内管理面板（content script，样式内联 + Shadow DOM）
+│  ├─ scripts/keygen.js           # 扩展 ID 密钥生成工具
 │  └─ icons/{16,48,128}.png
 ├─ native-host/
 │  ├─ host.js                    # 宿主主程序（零依赖）
-│  ├─ host.cmd.template          # 安装器生成 .cmd 的模板
-│  ├─ com.dsh.manager.json.template
-│  ├─ install.ps1
-│  ├─ uninstall.ps1
-│  ├─ install.sh                  # Linux/macOS 安装器（M4，用户级 NativeMessagingHosts 清单）
-│  ├─ uninstall.sh                # Linux/macOS 卸载器（M4）
+│  ├─ host.cmd.template / com.dsh.manager.json.template
+│  ├─ compute-id.js              # 扩展 ID 计算工具
+│  ├─ install.ps1 / uninstall.ps1        # Windows 安装/卸载器
+│  ├─ install.sh / uninstall.sh          # Linux/macOS 安装/卸载器（M4）
 │  └─ test/
-│     └─ smoke.ps1               # 离线冒烟：直接管道喂 JSON 测宿主（见 §14）
-├─ plugin/                       # M2 生命周期插件（独立 npm 包，dsh 侧）
-│  └─ dsh-lifecycle/ …
-├─ README.md                     # 用户安装/使用指引
-└─ CHANGELOG.md
+│     ├─ smoke.js                # 宿主冒烟 27 场景（--req/--res 文件模式，见 §14）
+│     ├─ smoke-real.js           # 真实 dsh 集成（best-effort，隔离 DSH_HOME）
+│     ├─ fake-dsh.js             # 伪 dsh bin（冒烟用，支持 --port 0 / lifecycle 端点）
+│     └─ manual-e2e.md / VERIFICATION.md
+├─ plugin/dsh-lifecycle/         # M2 生命周期插件（独立 npm 包，dsh 侧）
+├─ tools/                        # 开发期工具
+│  ├─ icons/                     # 鲸鱼图标生成（headless Chrome 渲染）
+│  ├─ linux/                     # WSL Linux 冒烟/E2E 验证脚本
+│  ├─ publish/                   # 发布副本构建（robocopy /MIR + tar 中转）
+│  ├─ verify-ui/                 # 扩展 UI 自动验收（CDP / MCP 两路径）
+│  └─ visual-audit/              # 视觉审计
+└─ …                             # LICENSE / NOTICE / SECURITY.md 等
 ```
 
 ---
@@ -894,7 +900,7 @@ dsh-manager/
 
 ### 14.1 宿主冒烟（不依赖浏览器）
 
-`test/smoke.js`（26 场景，2026-08-14 计数：Windows 339 PASS + 1 SKIP / Linux 346 PASS）：以 `--req/--res` 文件模式逐请求
+`test/smoke.js`（27 场景，2026-08-15 计数：Windows 347 PASS + 1 SKIP / Linux 337 PASS + 1 SKIP——场景 26 POSIX 专属、场景 27 载体为 Windows 专属）：以 `--req/--res` 文件模式逐请求
 拉起 `node host.js`（沙箱管道受限环境兼容），伪 dsh 由 `DSH_BIN_STUB` 指向
 `test/fake-dsh.js`（含 lifecycle 端点、`--port 0`、退出立即/不打印 URL 变体），
 状态目录隔离在工作区 `.smoke`，`BASE_ENV` 围栏真实进程枚举**仅 Windows 生效**（本机常驻真实 dsh web 会干扰「空目录→stopped」场景）。覆盖：ping/status
@@ -947,6 +953,7 @@ powershell/netstat，只读，不接管不停止）与 `EXTERNAL_UNMANAGED` 保�
 | **M3 体验增强** | restart 按钮、日志查看与复制、启动后自动开 UI 开关、徽标周期刷新（alarms）；Web UI 页面内管理面板（页面内停止/重启） | 完成（2026-08-14：`logs` 动作与日志查看页 §6.3/§8.4 + 页面内管理面板 §8.6（content script 方案，替代 dsh client 插件：外部插件无独立构建路径，见 §8.6 决策）；smoke 场景 24 + verify-cdp 自动验收） |
 | **M4 跨平台/跨浏览器** | macOS/Linux（SIGTERM 优雅路径、`~/.config` 状态目录、`kill` 代替 taskkill）；Firefox（`allowed_extensions` 已预留）；`--port 0` 端口发现 | 进行中：`--port 0` 已支持并对真实 dsh 实测通过（2026-08-14，§6.3 start 第 9 步 + smoke 场景 25 + smoke-real 扩展段）；Firefox Windows 宿主注册与 gecko id 已就绪（install/uninstall 含 Mozilla 注册表项，扩展运行时未实测）；**Linux 已实测通过（Kali WSL2，smoke 场景 26 真实 /proc 路径）**；macOS 与 Firefox 运行时待实测——**暂缓**（无对应设备，2026-08-14 用户决定） |
 | **M5（可选）上游贡献** | 向 deepseek-harness 提 `dsh server start/stop/status` 子命令或官方 lifecycle 插件 PR，本项目宿主改为优先调用官方面 | 上游采纳或明确拒绝 |
+| **M5.5 Windows 隐藏控制台载体**（2026-08-15 完成） | 消除 dsh 命令执行闪窗：wscript + `Run(cmd,0,False)` 隐藏控制台载体启动 + 端口表 PID 反查 + cmd 日志重定向（§6.3 第 5 步） | smoke 场景 27（Windows）通过；窗口实测：控制台存在但不可见、子进程零新窗口 |
 
 注（2026-08-14 用户决定）：**Chrome Web Store 上架与 macOS/Firefox 适配暂缓**；README 已重写为幽默风格并新增「测试环境」章节（CHROMEWEBSTORE.md 保留为将来上架素材）。
 
@@ -963,6 +970,7 @@ powershell/netstat，只读，不接管不停止）与 `EXTERNAL_UNMANAGED` 保�
 | 用户手工运行了一个 dsh web（无 run 记录） | 低 | 低（已缓解） | M1.1 外部实例发现（§6.6）：status 报告 `external` 状态与真实端口/URL；M1.2 接管（§6.7）后可管理；未接管前 stop/restart 返回 `EXTERNAL_UNMANAGED` 不误杀 |
 | 多浏览器 profile / 多台机器共享 LOCALAPPDATA | 低 | 低 | run 记录含 startedAt 与 pid，冲突自愈 |
 | dsh 插件 API 变化（appExit/webServer 契约） | 低 | 中 | 插件按 dsh 同版本号发布并声明 `peerDependencies`（`"@deepseek-ai/dsh": ">=0.1.0-rc.6 <0.2.0"`，已落实于 `plugin/dsh-lifecycle/package.json`）；宿主对优雅路径失败始终有 taskkill 回退 |
+| 命令执行闪现终端窗口 | 低（M5.5 起已缓解） | 低（闪窗不阻塞，stdout 仍入日志文件） | M5.5 隐藏控制台载体：dsh 获得从不显示的控制台，子进程继承、不再闪窗（§6.3 第 5 步）；残留风险：wscript 不可用或载体链路失败时实例不可托管（INTERNAL 提示）；若上游修复受限令牌限制可移除载体回归直接 spawn |
 
 ---
 

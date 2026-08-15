@@ -998,14 +998,40 @@ function getDshVersion(bin) {
 // 进程启动与终止
 // ---------------------------------------------------------------------------
 // spawn：node.exe <bin.js> --profile <p> --host <h> --port <n> [extraArgs...]
-// detached + windowsHide；stdout/stderr 追加写日志文件；透传全部环境变量
+// POSIX：直接 spawn（无控制台概念），stdout/stderr 追加写日志文件；透传全部环境变量。
+// Windows（M5.5）：隐藏控制台载体（design §6.3 第 5 步）——wscript.exe 执行
+// launch-hidden.vbs，WScript.Shell.Run(cmd, 0, False) 以 SW_HIDE 创建控制台：
+// dsh 拥有控制台（命令子进程继承、不再闪窗）但窗口从不显示。命令经环境变量
+// DSH_MANAGER_LAUNCH_CMD 传递；stdout/stderr 由 cmd `1>> 日志 2>&1` 重定向。
+// 载体（wscript→cmd）即刻退出，dsh 独立存活；真实 PID 由 startDshCore 在端口
+// 就绪后经端口表反查（findPidByPort），不以 wscript 的 pid 为准。
+const VBS_LAUNCH_SOURCE = [
+  "' DSH Manager: launch dsh with a hidden console (design §6.3 M5.5)",
+  "' Usage: wscript.exe launch-hidden.vbs  (command line via env DSH_MANAGER_LAUNCH_CMD)",
+  "' windowStyle=0 (SW_HIDE): the console window is created but never shown -",
+  "' dsh keeps a console (its children inherit it, no flash windows) while the",
+  "' desktop stays clean.",
+  "' 注意：必须显式经 cmd /d /c call 执行——WshShell.Run 对引号开头（exe 路径）的",
+  "' 命令会直接 CreateProcess，stdout 重定向（1>> 日志 2>&1）会被当成普通参数丢失。",
+  "' call 关键字避免 cmd /c 对首引号命令的剥引号规则。",
+  'On Error Resume Next',
+  'Set sh = CreateObject("WScript.Shell")',
+  'Set env = sh.Environment("PROCESS")',
+  'cmd = env("DSH_MANAGER_LAUNCH_CMD")',
+  'If cmd = "" Then WScript.Quit 1',
+  'sh.Run "cmd.exe /d /c call " & cmd, 0, False',
+  'If Err.Number <> 0 Then WScript.Quit 1',
+  'WScript.Quit 0',
+  '',
+].join('\n');
+
 function spawnDsh(bin, v) {
+  if (IS_WIN) return spawnDshWinCarrier(bin, v);
   fs.mkdirSync(LOGS_DIR, { recursive: true });
   const logFd = fs.openSync(LOG_FILE, 'a'); // 追加打开；宿主退出后子进程持有自身副本，不受影响
   const args = [bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs];
   const child = spawn(process.execPath, args, {
     detached: true, // dsh 必须独立于宿主存活（design §4.2.2）
-    windowsHide: true,
     stdio: ['ignore', logFd, logFd], // 不用 pipe：避免宿主退出后 EPIPE
     env: { ...process.env }, // 透传 DSH_HOME 等
   });
@@ -1014,6 +1040,45 @@ function spawnDsh(bin, v) {
   child.on('exit', (code, signal) => log('dsh 子进程退出 code=' + code + ' signal=' + signal));
   child.unref(); // 宿主可随时安全退出（design §6.3 start 第 8 步）
   return child;
+}
+
+// Windows：隐藏控制台载体启动（design §6.3 第 5 步，M5.5）
+function spawnDshWinCarrier(bin, v) {
+  fs.mkdirSync(BASE_DIR, { recursive: true });
+  fs.mkdirSync(LOGS_DIR, { recursive: true }); // cmd 重定向目标目录必须先存在
+  const vbs = path.join(BASE_DIR, 'launch-hidden.vbs');
+  try {
+    fs.writeFileSync(vbs, VBS_LAUNCH_SOURCE, 'utf8');
+  } catch (err) {
+    throw new AppError('INTERNAL', '载体脚本写入失败: ' + (err && err.message));
+  }
+  // cmd 命令行：token 全部引号包裹（& | < > 在引号内为字面量），
+  // 字面 % 转义为 %%（cmd 变量展开符）；stdout/stderr 追加重定向到日志文件
+  const esc = (s) => s.replace(/%/g, '%%');
+  const tokens = [process.execPath, bin, '--profile', v.profile, '--host', v.host,
+    '--port', String(v.port), ...v.extraArgs].map((s) => '"' + esc(s) + '"');
+  const cmdline = tokens.join(' ') + ' 1>> "' + esc(LOG_FILE) + '" 2>&1';
+  const child = spawn('wscript.exe', [vbs], {
+    detached: true, // 载体即刻退出，dsh 独立存活（design §4.2.2）
+    windowsHide: true,
+    stdio: 'ignore',
+    env: Object.assign({}, process.env, { DSH_MANAGER_LAUNCH_CMD: cmdline }),
+  });
+  // 必须有 error 监听，否则 spawn 失败会触发 uncaughtException
+  child.on('error', (err) => log('dsh 载体（wscript）启动 error: ' + (err && err.message)));
+  child.unref(); // 宿主可随时安全退出
+  return child;
+}
+
+// 端口表反查监听 PID（Windows 载体链路：run 记录的 pid 必须是真的 dsh 进程，
+// 而非载体 wscript 的 pid）。回环/通配地址过滤与外部发现（§6.6）一致。
+function findPidByPort(port) {
+  const isLoopbackOrWildcard = (addr) =>
+    addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' || addr === '0.0.0.0' || addr === '::';
+  for (const l of listTcpListeners()) {
+    if (l.port === port && isLoopbackOrWildcard(l.addr)) return l.pid;
+  }
+  return null;
 }
 
 // 强制终止（design §6.8 平台抽象层）：Windows taskkill /T /F；
@@ -1207,6 +1272,8 @@ function validateStartPayload(payload) {
   if (!va.ok) {
     throw new AppError('BAD_REQUEST', 'extraArgs 仅允许 --patch <绝对路径>（路径须存在，可重复），其余参数一律拒绝');
   }
+  // 注：原 windowsHide（显示/隐藏 dsh 控制台窗口）字段已移除——实测核验 detached 下
+  // 不生效（Windows DETACHED_PROCESS 语义，dsh 始终无控制台），见 design §6.3 第 5 步。
   return { host, port, profile, extraArgs: va.args };
 }
 
@@ -1309,6 +1376,10 @@ async function actionStatus() {
 // v 为内部校验后的 {host, port, profile, extraArgs}；adoptedReplay=true 时
 // extraArgs 来自接管解析（本机进程表，非扩展输入，跳过 §12.1 白名单，见 §6.7），
 // 且新 run 记录延续 adopted 血统标记（后续 restart 继续按原 argv 重放）。
+// M5.5：run 记录在「端口就绪 + PID 已知」后才写（Windows 载体链路下 spawn 时
+// 拿不到 dsh 的真实 PID），启动期间（端口就绪前）无记录、status 显示 stopped；
+// **锁保持到记录写入完成**——启动窗口内并发 start 被锁挡下（防双开，`--port 0`
+// 无占用探测亦被覆盖，design §6.3 第 6/7 步）。
 async function startDshCore(v, adoptedReplay) {
   // 抢锁（design §4.2.5）
   const locked = await acquireLock();
@@ -1317,6 +1388,8 @@ async function startDshCore(v, adoptedReplay) {
   // 避免历史日志里旧实例的 URL 行干扰）；声明在锁块外供后续发现轮询使用
   let logStartBytes = 0;
   let child = null;
+  let bin = null;
+  let version = 'unknown';
   try {
     // 锁内复查：防与其他宿主竞态双开（记录存在且 PID 存活即视为已在运行/启动中）
     const cur = readRunRecord();
@@ -1337,68 +1410,140 @@ async function startDshCore(v, adoptedReplay) {
       }
     }
     // 解析启动器（DSH_BIN_STUB -> 环境 prefix -> APPDATA npm -> npm prefix -g -> where dsh）
-    const bin = resolveDshBin();
+    bin = resolveDshBin();
     if (!bin) {
       throw new AppError('DSH_NOT_FOUND', '未检测到 dsh 安装。请先执行 npm i -g @deepseek-ai/dsh，然后重试；可运行 npm prefix -g 查看 npm 全局前缀。');
     }
     // 版本检查（非致命）
-    const version = getDshVersion(bin);
+    version = getDshVersion(bin);
     // 记录 spawn 时刻的日志字节偏移（LOG_FILE 可能尚不存在 -> 0）
     try { logStartBytes = fs.statSync(LOG_FILE).size; } catch (e) { logStartBytes = 0; }
-    // spawn（detached + 日志文件 fd）
+    // spawn（POSIX 直接 spawn；Windows 隐藏控制台载体，见 spawnDsh 注释）
     child = spawnDsh(bin, v);
-    if (!child.pid) {
-      throw new AppError('INTERNAL', 'dsh 子进程启动失败（未获得 PID）');
+    if (!child || !child.pid) {
+      throw new AppError('INTERNAL', IS_WIN
+        ? 'dsh 载体（wscript）启动失败，未获得进程'
+        : 'dsh 子进程启动失败（未获得 PID）');
     }
-    // 写 run 记录（原子）与冗余 pid 文件
-    const startedAt = Date.now();
-    const rec = {
-      pid: child.pid,
-      port: v.port, // M4：0 = 动态端口占位（实际端口随后从日志回填）
-      requestedPort: v.port,
-      logStartBytes,
-      host: v.host,
-      profile: v.profile,
-      startedAt,
-      version,
-      binPath: bin,
-      extraArgs: v.extraArgs,
-      ...(adoptedReplay ? { adopted: true } : {}),
-      cmdline: [process.execPath, bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs].join(' '),
-    };
+    // M5.5 Windows：载体早退检查——wscript 2s 内非 0 退出即载体失败（VBS Run 报错）
+    if (IS_WIN) {
+      const early = await Promise.race([
+        new Promise((res) => child.once('exit', (code) => res(code))),
+        sleep(2000).then(() => null),
+      ]);
+      if (early !== null && early !== 0) {
+        throw new AppError('INTERNAL', 'dsh 载体（wscript）启动失败，请检查系统组件后重试');
+      }
+    }
+    // M4 动态端口（--port 0）：先轮询日志 URL 行发现实际端口（最长 30s），
+    // 再按常规轮询该端口探活；发现超时 -> START_TIMEOUT + logTail（不杀进程）。
+    let targetPort = v.port;
+    if (v.port === 0) {
+      const deadline = Date.now() + 30000;
+      for (;;) {
+        targetPort = discoverPortFromLog(logStartBytes);
+        if (targetPort !== null) break;
+        if (Date.now() >= deadline) break;
+        await sleep(500);
+      }
+      if (targetPort === null) {
+        // M5.5：尽力回写占位记录（port 0，status 自愈回填），恢复失败期可停止性
+        writeBestEffortRecord(v, bin, version, null, 0, logStartBytes, adoptedReplay, child);
+        throw new AppError('START_TIMEOUT', 'dsh 在 30 秒内未报告动态端口（--port 0），进程已保留，请查看日志', { needLogTail: true });
+      }
+      log('动态端口已发现: ' + targetPort);
+    }
+    // 轮询探活（500ms 间隔，最长 30s）；超时 -> START_TIMEOUT + logTail（不杀进程）
+    const ready = await pollPortReady(targetPort, 30000, 500);
+    if (!ready) {
+      // M5.5：尽力回写记录，让实例仍可经扩展停止（若端口在听可反查到 pid）
+      writeBestEffortRecord(v, bin, version, null, targetPort, logStartBytes, adoptedReplay, child);
+      throw new AppError('START_TIMEOUT', `dsh 在 30 秒内未就绪（端口 ${targetPort} 无响应），进程已保留，请查看日志`, { needLogTail: true });
+    }
+    // M5.5 Windows：端口就绪后反查真实 PID（载体链路下 wscript 的 pid 不是 dsh 的 pid）
+    let pid = child.pid;
+    if (IS_WIN) {
+      pid = await findPidByPortRetry(targetPort);
+      if (!pid) {
+        throw new AppError('INTERNAL', `dsh 已就绪（端口 ${targetPort}）但未能解析其 PID（端口表反查失败），实例已保留运行，请查看日志或手动停止`, { needLogTail: true });
+      }
+      log(`载体启动完成，dsh PID 经端口表反查: ${pid}`);
+    }
+    // 写 run 记录（原子）与冗余 pid 文件（锁内，M5.5）
+    const rec = makeRunRecord(v, bin, version, pid, targetPort, logStartBytes, adoptedReplay);
     writeRunRecord(rec);
-    writePidFile(child.pid);
+    writePidFile(pid);
   } finally {
-    releaseLock(); // 锁在轮询前释放（design §6.3 start 第 7 步）
+    releaseLock(); // M5.5：锁保持到记录写入完成（防启动窗口并发双开，design §6.3 第 7 步）
   }
-  // M4 动态端口（--port 0）：先轮询日志 URL 行发现实际端口（最长 30s），回填记录后
-  // 再按常规轮询该端口探活；发现超时 -> START_TIMEOUT + logTail（不杀进程）。
-  let targetPort = v.port;
-  if (v.port === 0) {
-    const deadline = Date.now() + 30000;
-    for (;;) {
-      targetPort = discoverPortFromLog(logStartBytes);
-      if (targetPort !== null) break;
-      if (Date.now() >= deadline) break;
-      await sleep(500);
+  return buildResult('running', readRunRecord());
+}
+
+// M5.5：失败路径（START_TIMEOUT / 动态端口未报告）尽力回写 run 记录，
+// 保证实例仍可经扩展停止：
+//   POSIX：pid 已知（直接 spawn），立即写（port 0 占位由 status 自愈回填）。
+//   Windows：载体链路 pid 未知——port 已知时经端口表反查；port 未知（动态端口
+//   未报告）时经进程表匹配 bin+`--port 0`（尽力而为）；匹配失败仅记日志——
+//   实例可能仍在运行，刷新 popup 后可按 external「接管」停止。
+function writeBestEffortRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay, child) {
+  if (IS_WIN) {
+    let tpid = port > 0 ? findPidByPort(port) : null;
+    if (!tpid) tpid = findDshPidByCmdline(bin);
+    if (!tpid) {
+      log(`失败路径未能定位 dsh 进程（port=${port}）——实例可能仍在运行，刷新 popup 后可「接管」`);
+      return;
     }
-    if (targetPort === null) {
-      throw new AppError('START_TIMEOUT', 'dsh 在 30 秒内未报告动态端口（--port 0），进程已保留，请查看日志', { needLogTail: true });
-    }
-    const recPort = readRunRecord();
-    if (recPort && recPort.pid === child.pid) {
-      recPort.port = targetPort;
-      writeRunRecord(recPort);
-    }
-    log('动态端口已发现: ' + targetPort);
+    writeRunRecord(makeRunRecord(v, bin, version, tpid, port, logStartBytes, adoptedReplay));
+    writePidFile(tpid);
+    log(`失败路径已尽力回写记录 pid=${tpid} port=${port}`);
+    return;
   }
-  // 轮询探活（500ms 间隔，最长 30s）；超时 -> START_TIMEOUT + logTail（不杀进程）
-  const ready = await pollPortReady(targetPort, 30000, 500);
-  if (!ready) {
-    throw new AppError('START_TIMEOUT', `dsh 在 30 秒内未就绪（端口 ${targetPort} 无响应），进程已保留，请查看日志`, { needLogTail: true });
+  if (child && child.pid) {
+    writeRunRecord(makeRunRecord(v, bin, version, child.pid, port, logStartBytes, adoptedReplay));
+    writePidFile(child.pid);
+    log(`失败路径已回写记录 pid=${child.pid} port=${port}`);
   }
-  const rec2 = readRunRecord();
-  return buildResult('running', rec2 || { port: targetPort, version: 'unknown' });
+}
+
+// 进程表匹配：bin 路径 + `--port 0` 的存活 node 进程（动态端口未报告时的尽力反查；
+// 同 bin 同 `--port 0` 的外部实例才可能误配，且写记录前锁内已复查无记录，风险可控）
+function findDshPidByCmdline(bin) {
+  for (const p of listNodeProcesses()) {
+    if (!pidAlive(p.pid)) continue;
+    const cmd = p.cmdline || '';
+    if (!cmd.includes(String(bin))) continue;
+    if (!/(?:^|\s)--port(?:=|\s+)0(?=\s|$)/.test(cmd)) continue;
+    if (!pidLooksLikeDsh(p.pid, bin)) continue;
+    return p.pid;
+  }
+  return null;
+}
+
+// 端口表反查 + 一次 200ms 短重试（HTTP 就绪与 netstat 可见之间偶发亚毫秒延迟）
+async function findPidByPortRetry(port) {
+  let pid = findPidByPort(port);
+  if (pid) return pid;
+  await sleep(200);
+  return findPidByPort(port);
+}
+
+// 构造 run 记录（M5.5：pid/port 在启动流程后期才确定——端口就绪 + 端口表反查后写入；
+// 动态端口场景 port 恒为实际端口，不再有 0 占位期）
+function makeRunRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay) {
+  return {
+    pid,
+    port,
+    requestedPort: v.port,
+    logStartBytes,
+    host: v.host,
+    profile: v.profile,
+    startedAt: Date.now(),
+    version,
+    binPath: bin,
+    extraArgs: v.extraArgs,
+    ...(adoptedReplay ? { adopted: true } : {}),
+    cmdline: [process.execPath, bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs].join(' '),
+  };
 }
 
 async function actionStart(payload) {

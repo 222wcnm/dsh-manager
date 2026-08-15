@@ -21,7 +21,7 @@
 | 5 | §6.1 | stdio 帧：4 字节小端长度前缀 + UTF-8 JSON；入站 >1MB 断开；15s 无消息看门狗 | host.js `readFrame`/`writeFrame`/`armWatchdog` | ✅ PASS（静态） | 冒烟经文件模式验证同一 `handleRequest`；帧路径需真实浏览器覆盖（见 §5 风险 2） |
 | 6 | §6.1/任务 | 文件传输模式 `--req <in.json> --res <out.json>`（单请求或数组） | host.js `fileMode` | ✅ PASS | 冒烟 14 场景全程使用 |
 | 7 | §6.3 status | 无记录→stopped+清理孤儿 pid 文件；PID 死→清记录→stopped；PID 命令行校验（可关）；GET / 探活→running/starting；版本缓存于 run 记录；health=null（M2） | host.js `computeStatus` | ✅ PASS | 探活取 2xx/3xx（规格写 200，更宽无碍）；场景 2/5/12 |
-| 8 | §6.3 start | running→ALREADY_RUNNING；抢锁；端口占用→PORT_BUSY；launcher 解析；spawn detached+windowsHide+日志 fd；原子写 run 记录（.tmp+rename）；释放锁后轮询 500ms×30s；超时 START_TIMEOUT+logTail 且不杀进程；unref | host.js `actionStart` | ✅ PASS | 场景 3/4/9/11/13 |
+| 8 | §6.3 start | running→ALREADY_RUNNING；抢锁；端口占用→PORT_BUSY；launcher 解析；spawn detached+日志 fd（无控制台，原 windowsHide 字段已移除，§6.3 第 5 步）；原子写 run 记录（.tmp+rename）；释放锁后轮询 500ms×30s；超时 START_TIMEOUT+logTail 且不杀进程；unref | host.js `actionStart` | ✅ PASS | 场景 3/4/9/11/13 |
 | 9 | §6.3 stop | stopped→ALREADY_STOPPED；抢锁；M2 优雅 POST `/_lifecycle/shutdown`→轮询端口关闭；失败回退 taskkill /PID /T /F；轮询 10s；清 run 记录与 pid 文件 | host.js `stopCore` | ✅ PASS（优雅路径实测；强制路径沙箱受限） | 优雅路径轮询 3s（规格 §6.3 写 ≤10s，轻微时序偏差）；taskkill 在沙箱被禁，真实进程强制终止需沙箱外验证 |
 | 10 | §6.3 restart | stop（等待 stopped）→ start，以 run 记录字段重放 | host.js `actionRestart` | ✅ PASS | 场景 6：pid 31140→51756 |
 | 11 | §6.3 ping | 返回宿主版本与 dsh 路径解析结果 | host.js `actionPing` | ✅ PASS | 场景 1 |

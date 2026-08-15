@@ -8,11 +8,18 @@
 //
 // 关键决策（design §8.6）：
 //   - 指纹激活：仅 document.title 含 "DeepSeek Harness" 才注入，误注入面为零；
+//   - 归属验证：仅当扩展管理的实例运行中且端口与当前页面一致时才开放操作；
+//     其余情况（stopped、端口不匹配、外部/WSL 启动的实例）一律只读提示「未托管」；
 //   - Shadow DOM：宿主节点 + open shadow root，样式内联在 shadow 内，与页面
 //     CSS 双向零干扰；颜色用 --dsw-* 令牌（CSS 自定义属性可穿透 shadow 继承）
 //     并带 fallback；
 //   - 停止两步确认：面板所在页面将随 dsh 关闭，首次点击进入 3s 待确认态；
-//   - 只读页面：仅追加自身节点，不读取/修改 dsh 页面 DOM 与数据。
+//   - 只读页面：仅追加自身节点，不读取/修改 dsh 页面 DOM 与数据；
+//   - 圆点语义随「展示语义」而非原始状态：绿=本页托管运行中、蓝=外部实例、
+//     灰=未托管/已停止、琥珀=启动/停止中、红=连续失败后才报「状态获取失败」；
+//   - 扩展重载/更新后旧脚本上下文失效（chrome.runtime.id 为空）→ 停止轮询并
+//     提示刷新页面，避免孤儿脚本永久误报红错；
+//   - 展开面板绝对定位在胶囊上方：胶囊位置不动，面板向上弹出。
 // ============================================================================
 (() => {
   // ---- 指纹激活：仅 dsh Web UI 页面 ----
@@ -22,6 +29,7 @@
 
   const POLL_MS = 2000;
   const CONFIRM_WINDOW_MS = 3000;
+  const FAIL_STREAK_LIMIT = 3; // 连续失败次数阈值：MV3 SW 唤醒竞态等瞬时失败不立即红
 
   // ---- 样式（内联于 shadow root；令牌来自页面 :root 的 --dsw-*，fallback 兜底） ----
   const CSS = `
@@ -75,13 +83,17 @@
   background: currentColor;
 }
 .dot-running { color: var(--dsw-alias-state-success-primary, rgb(34, 197, 94)); }
+.dot-external { color: var(--dsw-alias-state-business-primary, rgb(65, 118, 230)); }
 .dot-busy { color: var(--dsw-alias-state-warn-primary, rgb(245, 158, 11)); }
 .dot-error { color: var(--dsw-alias-state-error-primary, rgb(236, 19, 19)); }
 @keyframes dshm-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 .dot-busy:after { animation: dshm-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 .body {
   display: none;
-  margin-top: 8px;
+  /* 展开面板绝对定位在胶囊上方：胶囊（chip）位置不动，面板向上弹出 */
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
   padding: 10px 12px;
   width: 240px;
   border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
@@ -202,9 +214,10 @@
   document.body.appendChild(hostEl);
 
   // ---- 状态 ----
-  let state = 'unknown'; // stopped | starting | running | stopping | external | error
+  let state = 'unknown'; // stopped | starting | running | stopping | external | error | detached
   let detail = null;
   let busy = false;
+  let failStreak = 0; // 连续 status 失败计数（达 FAIL_STREAK_LIMIT 才进 error）
   let confirmTimer = null;
   let pollTimer = null;
   let reqSeq = 0;
@@ -230,44 +243,77 @@
     return s;
   }
 
+  // 归属判定：页面身份 ≠ 进程归属（页面标题只说明「有 dsh 的 UI」，不说明
+  // 「这个 dsh 归扩展管」——WSL/终端启动的实例同样满足注入指纹）。仅当扩展
+  // 管理的实例正在运行且其端口与当前页面端口一致时，本面板才有控制权。
+  function ownership() {
+    const pagePort = Number(window.location.port) || 0;
+    const repPort = detail && Number(detail.port);
+    return {
+      repPort,
+      isManagedHere: state === 'running' && repPort === pagePort,
+      isExternalHere: state === 'external' && repPort === pagePort,
+    };
+  }
+
+  // 圆点颜色跟随「展示语义」而非原始状态：绿只表示「本页托管实例运行中」；
+  // 未托管（stopped / 端口不匹配 / external 不在本页）一律中性灰，外部实例蓝，
+  // 启动/停止中琥珀脉冲，状态获取失败红（连续失败后）
   function dotStateClass() {
-    if (state === 'running') return 'dot-running';
-    if (state === 'starting' || state === 'stopping') return 'dot-busy';
+    const o = ownership();
     if (state === 'error') return 'dot-error';
+    if (state === 'starting' || state === 'stopping') return 'dot-busy';
+    if (o.isManagedHere) return 'dot-running';
+    if (o.isExternalHere) return 'dot-external';
     return '';
   }
 
   function renderStatus() {
     if (!busy) dot.className = 'dot ' + dotStateClass();
+    const o = ownership();
     let text = '';
-    if (state === 'running') {
+    let chip = '';
+    if (state === 'detached') {
+      // 扩展重载/更新后旧内容脚本上下文失效（孤儿脚本）：页面刷新前无法恢复，
+      // 明确提示而非误报「状态获取失败」
+      text = '扩展已重载或更新，请刷新页面恢复';
+      chip = 'dsh web · 已断开';
+      btnStop.disabled = true;
+      btnRestart.disabled = true;
+    } else if (state === 'unknown') {
+      // 状态未就绪：保持中性占位，按钮先禁用（refresh 很快收敛）
+      if (!busy) { btnStop.disabled = true; btnRestart.disabled = true; }
+      return;
+    } else if (o.isManagedHere) {
       text = '运行中';
-      if (detail && Number.isInteger(detail.port)) text += ' · 端口 ' + detail.port;
+      if (Number.isInteger(o.repPort)) text += ' · 端口 ' + o.repPort;
       if (detail && detail.health && detail.health.ok) text += ' · 健康';
-      chipText.textContent = 'dsh web · ' + (detail && Number.isInteger(detail.port) ? detail.port : '运行中');
-    } else if (state === 'external') {
+      chip = 'dsh web · ' + (Number.isInteger(o.repPort) ? o.repPort : '运行中');
+    } else if (o.isExternalHere) {
       text = '外部实例（非本扩展启动）';
-      if (detail && Number.isInteger(detail.port)) text += ' · 端口 ' + detail.port;
-      chipText.textContent = 'dsh web · 外部';
+      if (Number.isInteger(o.repPort)) text += ' · 端口 ' + o.repPort;
+      chip = 'dsh web · 外部';
     } else if (state === 'starting') {
       text = '正在启动…';
-      chipText.textContent = 'dsh web · 启动中';
+      chip = 'dsh web · 启动中';
     } else if (state === 'stopping') {
       text = '正在停止…';
-      chipText.textContent = 'dsh web · 停止中';
+      chip = 'dsh web · 停止中';
     } else if (state === 'error') {
       text = '状态获取失败';
-      chipText.textContent = 'dsh web · 错误';
+      chip = 'dsh web · 错误';
     } else {
-      text = '已停止';
-      chipText.textContent = 'dsh web';
+      // stopped，或 running/external 但端口与当前页面不一致：
+      // 当前页面的 dsh 不由本扩展管理（如终端/WSL 启动的另一实例）
+      text = '此实例不由本扩展管理（请在扩展 popup 中操作）';
+      chip = 'dsh web · 未托管';
     }
     statusText.textContent = text;
-    // running 可停止/重启；stopped 时重启等价于启动（宿主 restart 退化为 start）
-    const running = state === 'running';
+    chipText.textContent = chip;
+    // 仅「扩展管理的实例（运行中且端口匹配）」可停止/重启；其余一律只读
     if (!busy) {
-      btnStop.disabled = !running;
-      btnRestart.disabled = !(running || state === 'stopped');
+      btnStop.disabled = !o.isManagedHere;
+      btnRestart.disabled = !o.isManagedHere;
     }
   }
 
@@ -283,23 +329,46 @@
     return resp || { ok: false, error: { code: 'NATIVE_ERROR', message: '扩展后台无响应' } };
   }
 
+  // 扩展重载/更新后，旧内容脚本的 chrome.runtime 上下文失效（孤儿脚本）：
+  // 消息将永远失败且页面刷新前无法恢复——统一走 detached（停止轮询 + 提示刷新）
+  function contextAlive() {
+    try { return !!(chrome && chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
+  }
+
   async function refresh() {
     if (busy) return;
+    if (!contextAlive()) {
+      state = 'detached';
+      stopPoll();
+      renderStatus();
+      return;
+    }
     let resp;
     try {
       resp = await nativeRequest('status', {});
     } catch (_) {
-      state = 'error';
-      renderStatus();
+      failTick();
       return;
     }
     if (resp && resp.ok) {
+      failStreak = 0;
       detail = resp.result || {};
       state = detail.state || 'stopped';
     } else {
-      state = 'error';
+      failTick();
+      return;
     }
     renderStatus();
+  }
+
+  // 瞬时失败去抖：MV3 SW 休眠/唤醒竞态会让单次消息失败、下一轮即恢复；
+  // 连续 FAIL_STREAK_LIMIT 次失败（约 6s）才显示红色错误态，期间保留上次成功状态
+  function failTick() {
+    failStreak += 1;
+    if (failStreak >= FAIL_STREAK_LIMIT) {
+      state = 'error';
+      renderStatus();
+    }
   }
 
   // ---- 操作 ----
@@ -312,8 +381,7 @@
       const resp = await nativeRequest('stop', {});
       if (resp && resp.ok) {
         state = 'stopped';
-        feedback.textContent = '已停止。可点「重启」恢复。';
-        chipText.textContent = 'dsh web';
+        feedback.textContent = '已停止。如需再次管理，请在扩展 popup 中操作。';
       } else if (resp && resp.error && resp.error.code === 'ALREADY_STOPPED') {
         state = 'stopped';
         feedback.textContent = 'dsh web 已停止（幂等）。';
@@ -326,6 +394,8 @@
       feedback.textContent = '停止失败：无法连接扩展后台';
     } finally {
       setBusy(false);
+      // 动作在途扩展被重载：立即进 detached，避免短暂恢复旧状态（≤2s 后才被轮询纠正）
+      if (!contextAlive()) { state = 'detached'; stopPoll(); }
       renderStatus();
     }
   }
@@ -350,6 +420,8 @@
       feedback.textContent = '重启失败：无法连接扩展后台';
     } finally {
       setBusy(false);
+      // 动作在途扩展被重载：立即进 detached，避免短暂恢复旧状态（≤2s 后才被轮询纠正）
+      if (!contextAlive()) { state = 'detached'; stopPoll(); }
       renderStatus();
     }
   }

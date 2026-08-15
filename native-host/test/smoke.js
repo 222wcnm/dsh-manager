@@ -61,6 +61,9 @@
 //      （run 记录 requestedPort=0/logStartBytes/port=实际）-> status 一致 ->
 //      restart 再次发现且 pid 变化 -> stop 无残留 -> port=-1/70000 -> BAD_REQUEST
 //      -> 动态端口未报告 -> START_TIMEOUT -> 死 pid 残留记录被 status 清理
+//   27 M5.5 Windows 隐藏控制台载体：start -> run 记录 pid 为端口表反查的真实进程
+//      （非载体 wscript 的 pid）且存活 -> status 一致 -> restart pid 变化 ->
+//      stop 优雅 -> 记录清除（POSIX 记 SKIP：无载体，直接 spawn）
 //
 // 确定性：BASE_ENV 默认注入 DSH_MANAGER_FAKE_PROCESSES='[]' 屏蔽真实进程枚举
 //（本机常驻真实 dsh web 8080 会让 2/8/12 等「空目录」场景误报 external）；
@@ -1059,6 +1062,51 @@ async function scenarioPosixPlatform() {
 }
 
 // ---------------------------------------------------------------------------
+// 场景 27（M5.5，仅 Windows）：隐藏控制台载体启动链路——start 后 run 记录的
+// pid 必须是端口表（netstat）反查出的真实 dsh 进程（而非载体 wscript 的 pid），
+// 且 restart 后 pid 变化、stop 优雅停止、记录清除。POSIX 直接 spawn 无载体，
+// 记 SKIP（其链路已由场景 3-25 全程覆盖）。
+// ---------------------------------------------------------------------------
+async function scenarioCarrierLaunch() {
+  if (!IS_WIN) {
+    recordSkip('场景', '27 载体启动链路（隐藏控制台）', 'POSIX 直接 spawn，无载体（design §6.3 第 5 步）');
+    return;
+  }
+  cleanup();
+  // start：经 wscript 载体拉起 fake-dsh；run 记录 pid 应为端口反查的真实进程
+  const s = runHost({ id: 's27a', action: 'start', payload: { port: 31927 } }, 's27a');
+  expect(s && s.ok === true && s.result.state === 'running',
+    '27 载体 start -> running', JSON.stringify(s && s.result));
+  const rec = readRunFile();
+  expect(rec && Number.isInteger(rec.pid) && rec.pid > 0 && pidAlive(rec.pid)
+    && rec.port === 31927,
+    '27 run 记录 pid 为真实 dsh 进程（端口反查）且存活', rec ? JSON.stringify(rec) : 'run 记录缺失');
+  // 记录 pid 不能是载体 wscript 的 pid：wscript 早已退出（pidAlive 已隐含覆盖）
+  expect(rec && rec.cmdline && rec.cmdline.includes('fake-dsh.js'),
+    '27 run 记录 cmdline 指向 dsh 入口', rec ? JSON.stringify(rec.cmdline) : 'run 记录缺失');
+
+  // status：与记录一致
+  const st = runHost({ id: 's27b', action: 'status', payload: {} }, 's27b');
+  expect(st && st.ok === true && st.result.state === 'running' && st.result.pid === rec.pid,
+    '27 status -> running 且 pid 与记录一致', JSON.stringify(st && st.result));
+
+  // restart：按记录重放（载体再次启动）-> pid 变化
+  const r = runHost({ id: 's27c', action: 'restart', payload: {} }, 's27c');
+  expect(r && r.ok === true && r.result.state === 'running',
+    '27 restart -> running', JSON.stringify(r && r.result));
+  const rec2 = readRunFile();
+  expect(rec2 && rec2.pid !== rec.pid && pidAlive(rec2.pid) && rec2.port === 31927,
+    '27 restart 后 pid 变化且存活', rec2 ? JSON.stringify(rec2) : 'run 记录缺失');
+
+  // stop：优雅停止（fake-dsh 提供 lifecycle）-> 记录清除
+  const so = runHost({ id: 's27d', action: 'stop', payload: {} }, 's27d');
+  expect(so && so.ok === true && so.result.state === 'stopped',
+    '27 stop -> stopped', JSON.stringify(so && so.result));
+  expect(readRunFile() === null, '27 run 记录已清除', '');
+  cleanup();
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 async function main() {
@@ -1111,6 +1159,8 @@ async function main() {
   try { await scenarioPortZero(); } catch (e) { console.log('  场景 25 异常:', e.message); }
   cleanup();
   try { await scenarioPosixPlatform(); } catch (e) { console.log('  场景 26 异常:', e.message); }
+  cleanup();
+  try { await scenarioCarrierLaunch(); } catch (e) { console.log('  场景 27 异常:', e.message); }
   cleanup();
 
   const failed = results.filter((r) => !r.ok);

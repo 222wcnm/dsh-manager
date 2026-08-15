@@ -71,44 +71,24 @@ popup 设置面板（保存在 `chrome.storage.local`）：
 | 自动打开 UI | 开 | 启动就绪后自动打开标签页 |
 | 徽标刷新间隔 | 30 秒 | 图标徽标状态刷新周期 |
 
-## 常见问题
+## 使用说明
 
-**HOST_NOT_INSTALLED？**
-浏览器找不到本地宿主。重跑 `native-host\install.ps1`，然后完全重启浏览器。
-
-**popup 显示 `external`？**
-有个不是本扩展起的 dsh web 在跑（比如你在终端敲过 `dsh web --port 4080`）。可直接打开它的 UI，或「接管」后像自启动实例一样停止 / 重启（重启按原参数重放）；不接管就不动它。
-
-**端口被占用？**
-popup 设置里换端口，或设成 `0` 自动分配。占用者若是另一个 dsh web，会被识别成 `external`。
-
-**安全吗？**
-扩展与宿主仅 127.0.0.1 回环通信；宿主只接受本项目固定扩展 ID；不读不存凭据；状态文件与日志只落在本地（Windows 为 `%LOCALAPPDATA%\dsh-manager\`）。
+- **宿主未安装（HOST_NOT_INSTALLED）**：浏览器找不到本地宿主。重跑安装脚本并**完全重启浏览器**——宿主注册只在浏览器启动时读取：Windows 为 `native-host\install.ps1`，Linux / macOS 为 `native-host/install.sh`。
+- **external 状态**：页面上检测到不是本扩展启动的 dsh web（比如你在终端手工跑过 `dsh web --port 4080`）。可以直接打开它的 UI 查看，或点「接管」后像自启动实例一样停止 / 重启（重启按原参数重放）；不接管就不动它。
+- **端口占用**：popup 设置里换端口，或设成 `0` 自动分配动态端口（启动后自动回填实际端口）；占用者若是另一个 dsh web，会被识别为 `external`。
+- **安全模型**：扩展与宿主仅经 127.0.0.1 回环通信；宿主只接受本项目固定扩展 ID；不读不存 dsh 凭据；状态文件与日志只落在本地（Windows 为 `%LOCALAPPDATA%\dsh-manager\`，Linux / macOS 为 `~/.config/dsh-manager` 或 `~/Library/Application Support`）。
 
 ## 测试环境
 
-怎么测的、什么没测，都写在这里：
-
-| 项目 | 环境 | 结果 |
-|------|------|------|
-| Windows 冒烟 | Windows 11 Pro + Chrome / Edge | 全新克隆 333 PASS + 4 SKIP（3 项本地产物核对 + 1 项 POSIX 场景跳过）；开发机 339 PASS + 1 SKIP |
-| Linux 冒烟 | Kali WSL（WSL2）+ 便携 Node 22.16.0 | 346/346 PASS（真实 /proc 进程枚举与端口表、SIGTERM 终止、`--port 0` 全链路） |
-| 真实 dsh 集成 | @deepseek-ai/dsh 0.1.0-rc.6（npm latest，2026-08 基线） | smoke-real：启动/停止全链路 + `--port 0` 真机回填 + 外部发现生产路径 |
-| 扩展 UI | headless Chrome + 零依赖 CDP | verify-cdp 28 断言全过（popup / logs / 页面内面板 / 徽标 / console 检查） |
-| 生命周期插件 | dsh-lifecycle | 单测 21/21 |
-
-没测的（不装）：
-
-- **macOS**：分支代码已写，没设备，没实测
-- **Firefox 运行时**：宿主注册已就绪，本机没装 Firefox，没实测
-- **Chrome Web Store**：暂不上架，本地开发者模式加载即可
+- **已验证**：Windows 11（Chrome / Edge）与 Kali WSL2（Linux）冒烟测试全过；真实 dsh 0.1.0-rc.6 的启动 / 停止 / 动态端口 / 外部发现集成验证通过；扩展 UI 自动验收（headless Chrome + CDP，33 条断言）全过；dsh-lifecycle 插件单测 21/21。
+- **未实测**：macOS（安装脚本同源实现，无设备）；Firefox 运行时（宿主注册已就绪，本机未装）；Chrome Web Store 上架（暂缓，本地开发者模式加载即可）。
 
 ## 更多
 
 - 详细设计（架构 / 协议 / 安全 / 路线图）：[docs/design.md](docs/design.md)
 - 开发、测试命令与提交规范：[CONTRIBUTING.md](CONTRIBUTING.md)
 - dsh 本体：[github.com/deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
-- 构建者：本项目完全由 **deepseek-V4-pro-0813** 在 dsh 中构建，视觉辅助模型为 **gemini-3.5-flash-lite**
+- 构建者：本项目由 **deepseek-V4-pro-0813** 与 **deepseek-v4-flash-0731** 在 dsh 中构建，视觉辅助模型为 **gemini-3.5-flash-lite**
 - 许可证：MIT（[LICENSE](LICENSE)）。鲸鱼 logo 等品牌素材版权归 DeepSeek 所有、不随 MIT 授权，见 [NOTICE](NOTICE)。
 
 > 非官方社区工具，与 DeepSeek 官方无隶属关系；极端情况下强制停止可能丢最近几秒会话状态，使用前自行评估。

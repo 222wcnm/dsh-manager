@@ -208,10 +208,12 @@ async function main() {
       if (!h || !h.shadowRoot) return JSON.stringify({ injected: false });
       const chip = h.shadowRoot.querySelector('.chip');
       const status = h.shadowRoot.querySelector('.status-text');
+      const dot = h.shadowRoot.querySelector('.dot');
       return JSON.stringify({
         injected: true,
         chip: chip ? chip.textContent.trim() : '',
         status: status ? status.textContent.trim() : '',
+        dot: dot ? dot.className : '',
       });
     })()`,
     returnByValue: true,
@@ -221,12 +223,25 @@ async function main() {
   record('页面内管理面板已注入', panelInfo.injected === true, JSON.stringify(panelInfo));
   record('面板徽章文本', typeof panelInfo.chip === 'string' && panelInfo.chip.length > 0, panelInfo.chip);
   record('面板状态文本', typeof panelInfo.status === 'string' && panelInfo.status.length > 0, panelInfo.status);
+  record('面板：托管运行中为绿点且显示端口',
+    panelInfo.dot === 'dot dot-running' && /端口 \d+/.test(panelInfo.status || ''),
+    JSON.stringify(panelInfo));
   const shot3 = await page.send('Page.captureScreenshot', { format: 'png' });
   const panelPng = pathShots('panel.png');
   fs.writeFileSync(panelPng, Buffer.from(shot3.data, 'base64'));
   record('panel 截图', fs.statSync(panelPng).size > 2000, panelPng + ' (' + fs.statSync(panelPng).size + ' bytes)');
 
-  // 7) 展开面板：点击徽章后断言状态行 + 停止/重启按钮（绝不点击操作按钮——面板面向真实实例）
+  // 7) 展开面板：点击徽章后断言状态行 + 停止/重启按钮（绝不点击操作按钮——面板面向真实实例）；
+  //    同时断言胶囊位置在展开前后不变、面板从胶囊上方展开（回归：body 曾为流内元素把胶囊顶上去）
+  const chipRectBefore = await page.send('Runtime.evaluate', {
+    expression: `(() => {
+      const h = document.getElementById('dsh-manager-panel-host');
+      if (!h || !h.shadowRoot) return JSON.stringify({ ok: false });
+      const r = h.shadowRoot.querySelector('.chip').getBoundingClientRect();
+      return JSON.stringify({ ok: true, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) });
+    })()`,
+    returnByValue: true,
+  });
   await page.send('Runtime.evaluate', {
     expression: `(() => {
       const h = document.getElementById('dsh-manager-panel-host');
@@ -244,7 +259,14 @@ async function main() {
       const body = h.shadowRoot.querySelector('.body');
       const visible = !!body && getComputedStyle(body).display !== 'none';
       const buttons = Array.from(h.shadowRoot.querySelectorAll('.btn')).map((b) => ({ text: b.textContent.trim(), disabled: b.disabled }));
-      return JSON.stringify({ open: visible, buttons });
+      const cr = h.shadowRoot.querySelector('.chip').getBoundingClientRect();
+      const br = body.getBoundingClientRect();
+      return JSON.stringify({
+        open: visible,
+        buttons,
+        chip: { x: Math.round(cr.x), y: Math.round(cr.y), w: Math.round(cr.width), h: Math.round(cr.height) },
+        body: { bottom: Math.round(br.bottom), top: Math.round(br.top) },
+      });
     })()`,
     returnByValue: true,
   });
@@ -255,6 +277,18 @@ async function main() {
     && openInfo.buttons[0].text === '停止' && openInfo.buttons[0].disabled === false
     && openInfo.buttons[1].text === '重启' && openInfo.buttons[1].disabled === false,
     JSON.stringify(openInfo.buttons));
+  let beforeRect = null;
+  try { beforeRect = JSON.parse(String(chipRectBefore.result.value)); } catch (_) { /* 保持默认 */ }
+  const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= 1;
+  const chipStable = !!(beforeRect && beforeRect.ok && openInfo.chip
+    && near(beforeRect.x, openInfo.chip.x) && near(beforeRect.y, openInfo.chip.y)
+    && near(beforeRect.w, openInfo.chip.w) && near(beforeRect.h, openInfo.chip.h));
+  record('面板展开时胶囊位置不变', chipStable,
+    'before=' + JSON.stringify(beforeRect) + ' after=' + JSON.stringify(openInfo.chip));
+  const bodyAbove = !!(openInfo.open && openInfo.body && openInfo.chip
+    && openInfo.body.bottom <= openInfo.chip.y + 1);
+  record('面板展开在胶囊上方', bodyAbove,
+    'body.bottom=' + JSON.stringify(openInfo.body && openInfo.body.bottom) + ' chip.y=' + JSON.stringify(openInfo.chip && openInfo.chip.y));
   const shot4 = await page.send('Page.captureScreenshot', { format: 'png' });
   const panelOpenPng = pathShots('panel-open.png');
   fs.writeFileSync(panelOpenPng, Buffer.from(shot4.data, 'base64'));
@@ -342,6 +376,47 @@ async function main() {
       record('徽标（扩展 SW 目标）', false, 'SW 附加失败: ' + e.message);
     }
   }
+
+  // 8b) 面板重载回归：扩展重载（chrome://extensions「重新加载」等价，同路径 loadUnpacked
+  //     会替换已加载实例）后，已打开页面里的旧内容脚本上下文失效——曾表现为永久红错
+  //     「状态获取失败」直到刷新页面。现在应显示「已断开」中性提示并停止轮询；
+  //     刷新页面后新面板注入并恢复托管状态。
+  log('面板重载回归（扩展重载 → 提示刷新；刷新页面 → 恢复）');
+  await browserWs.send('Extensions.loadUnpacked', { path: EXT_DIR });
+  await sleep(4000);
+  const det = await page.send('Runtime.evaluate', {
+    expression: `(() => {
+      const h = document.getElementById('dsh-manager-panel-host');
+      if (!h || !h.shadowRoot) return JSON.stringify({ injected: false });
+      const s = h.shadowRoot.querySelector('.status-text');
+      const d = h.shadowRoot.querySelector('.dot');
+      const c = h.shadowRoot.querySelector('.chip');
+      return JSON.stringify({ injected: true, status: s ? s.textContent.trim() : '', dot: d ? d.className : '', chip: c ? c.textContent.trim() : '' });
+    })()`,
+    returnByValue: true,
+  });
+  let detInfo = { injected: false };
+  try { detInfo = JSON.parse(String(det.result.value)); } catch (_) { /* 保持默认 */ }
+  record('面板：扩展重载后提示刷新（非红错）',
+    detInfo.injected === true && /刷新页面/.test(detInfo.status || '') && !/dot-error/.test(detInfo.dot || ''),
+    JSON.stringify(detInfo));
+  await page.send('Page.reload');
+  await sleep(8000);
+  const rec = await page.send('Runtime.evaluate', {
+    expression: `(() => {
+      const h = document.getElementById('dsh-manager-panel-host');
+      if (!h || !h.shadowRoot) return JSON.stringify({ injected: false });
+      const s = h.shadowRoot.querySelector('.status-text');
+      const d = h.shadowRoot.querySelector('.dot');
+      return JSON.stringify({ injected: true, status: s ? s.textContent.trim() : '', dot: d ? d.className : '' });
+    })()`,
+    returnByValue: true,
+  });
+  let recInfo = { injected: false };
+  try { recInfo = JSON.parse(String(rec.result.value)); } catch (_) { /* 保持默认 */ }
+  record('面板：刷新页面后恢复托管状态',
+    recInfo.injected === true && /运行中/.test(recInfo.status || '') && recInfo.dot === 'dot dot-running',
+    JSON.stringify(recInfo));
 
   // 9) 日志页交互（安全只读）：点「加载更早」（真实日志 < 500 行 → toast 已到开头）
   //    与「复制全部」（toast 显示行数）——验证按钮/toast 链路，不触碰生命周期。
