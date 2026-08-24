@@ -1,9 +1,9 @@
 # dsh-lifecycle
 
 给 DeepSeek Harness（dsh）web 面提供进程内生命周期能力的可选插件：一个回环围栏保护的
-**优雅停机端点** 与一个 **健康端点**。它解决的是进程外组件（浏览器扩展 + Native 宿主）
-做不到的事 —— 进入 dsh 自身的 dispose 生命周期，从而在 Windows 上也能优雅停止（否则只能
-`taskkill` 硬杀）。
+**优雅停机端点**、一个 **健康端点** 与一个 **只读会话摘要端点**。它解决的是进程外组件
+（浏览器扩展 + Native 宿主）做不到的事 —— 进入 dsh 自身的 dispose 生命周期，从而在
+Windows 上也能优雅停止（否则只能 `taskkill` 硬杀）。
 
 ## 功能
 
@@ -11,6 +11,7 @@
 |------|------|------|------|
 | `POST` | `/_lifecycle/shutdown` | `202 {"ok":true}`（重复请求 `409`） | 先刷出响应，再 `appExit(0)`：优雅 dispose 请求（触发 dsh 官方 fiber dispose，端口随之关闭）；进程退出依赖事件循环自然排空，**不保证必然退出**；DSH Manager 宿主以端口关闭为判定权威，必要时 taskkill 回退 |
 | `GET`  | `/_lifecycle/health`    | `200` JSON | 健康/富状态（下见示例） |
+| `GET`  | `/_manager/sessions`    | `200 {"ok":true,"items":[...]}` | **只读会话摘要**（M9）：live 会话的元数据行——`sessionId/title?/state/updatedAt/blank/cwd?`；**不读消息体/事件内容/凭据** |
 
 health 响应：
 
@@ -24,6 +25,33 @@ health 响应：
 }
 ```
 
+sessions 响应（`items` 为 live 会话数组，排序同 `sessions.list()` 创建序）：
+
+```json
+{
+  "ok": true,
+  "items": [
+    {
+      "sessionId": "session-8c1f...",
+      "title": "帮我查一下最近的提交",
+      "state": "working",
+      "updatedAt": 1787422800000,
+      "blank": false,
+      "cwd": "D:\\work\\repo"
+    },
+    { "sessionId": "session-9a2e...", "state": "idle", "updatedAt": 1787422801000, "blank": true }
+  ]
+}
+```
+
+- `state` 语义（design §8.10）：`waiting`（等待审批/问答——`approval/asked`↔`decided` 或
+  `tool/call`(ask_user_question)↔`tool/result` 事件对未闭合）> `working`（agent running）>
+  `completed`（存在 `turn/end`）> `idle`（其余）。
+- `title` 从会话事件流中的 `session/title` 事件 fold（该事件由官方 dsh-session-title 服务
+  append，内容已归一化）；无标题事件时该字段省略，由消费方降级（DSH Manager popup 显示
+  `会话 #<id 前 8>`）——**不依赖 sessionTitle 服务本身**，无该服务的部署同样可用。
+- 只读幂等、无副作用；live 会话之外的冷会话（历史持久化会话）不在 v1 范围内。
+
 ## 端点用法（curl 示例）
 
 ```bash
@@ -35,6 +63,10 @@ curl http://127.0.0.1:3080/_lifecycle/health
 curl -i -X POST http://127.0.0.1:3080/_lifecycle/shutdown
 # → HTTP/1.1 202 Accepted
 #   {"ok":true}
+
+# 只读会话摘要（M9）
+curl http://127.0.0.1:3080/_manager/sessions
+# → {"ok":true,"items":[...]}
 ```
 
 ## 安装（实测语法，勿臆测）
@@ -109,7 +141,7 @@ dsh plugin --profile web install
 4. `Origin` 头**存在时**，其 host 必须与 `Host` 的 host 相等（异源拒绝；无 `Origin` 放行）。
 
 由此：浏览器扩展页面直接 `fetch`（带 `chrome-extension://` Origin）会被拒；而「扩展 → 宿主 →
-HTTP」链路（宿主请求不带 Origin）天然合规。`shutdown` 仅 `POST`，`health` 仅 `GET`。
+HTTP」链路（宿主请求不带 Origin）天然合规。`shutdown` 仅 `POST`，`health` 与 `sessions` 仅 `GET`。
 
 ## 与浏览器扩展的关系（DSH Manager）
 

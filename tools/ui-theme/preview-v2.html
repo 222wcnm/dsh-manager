@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+DSH Manager · 会话状态感知设计走查 (Version 2: 微卡片仪表盘 · 100% 真实基线还原)
+================================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whalekeeper · 会话状态感知设计走查（V2 微卡片仪表盘）</title>
+<script src="dsh-assets-library.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.14);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-button-primary-fill: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: rgb(67, 69, 74);
+  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+
+  --dsh-mgr-sem-working: var(--dsw-static-deepseek-450);
+  --dsh-mgr-sem-waiting: var(--dsw-static-amber-500);
+  --dsh-mgr-sem-completed: var(--dsw-static-green-500);
+  --dsh-mgr-sem-stopped: var(--dsw-static-green-500);
+
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --page-bg: #eef1f5;
+  --page-card: #ffffff;
+  --page-text: #0f1115;
+  --page-muted: #61666b;
+  --page-border: rgba(0,0,0,.08);
+}
+
+body[data-ds-dark-theme],
+[data-theme="dark-preview"] {
+  color-scheme: dark;
+  --dsw-alias-bg-base: rgb(22, 23, 26);
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.18);
+  --dsw-alias-label-primary: rgb(241, 243, 245);
+  --dsw-alias-label-secondary: rgb(173, 178, 184);
+  --dsw-alias-label-caption: rgb(97, 102, 107);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-button-primary-fill: rgb(241, 243, 245);
+  --dsw-alias-button-primary-hover: rgb(215, 219, 224);
+  --dsw-alias-label-primary-foreground: rgb(15, 17, 21);
+  --dsw-alias-bg-module-platform: rgb(30, 32, 37);
+  --dsw-alias-state-business-primary: rgb(86, 134, 254);
+
+  --page-bg: #101216;
+  --page-card: #181a20;
+  --page-text: #f1f3f5;
+  --page-muted: #9aa0a6;
+  --page-border: rgba(255,255,255,.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: var(--dsw-font-family);
+  padding: 24px 32px 80px;
+  transition: background .2s ease;
+}
+
+@keyframes dsh-dot-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes dsh-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, var(--dsw-static-deepseek-450) 0%, #a5b4fc 50%, var(--dsw-static-deepseek-450) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 2.2s linear infinite;
+  font-weight: 500;
+}
+@keyframes dsh-panel-in {
+  0% { opacity: 0; transform: translateX(6px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.panel-slide-in { animation: dsh-panel-in 0.18s var(--ds-ease-in-out) forwards; }
+
+.top-bar {
+  max-width: 860px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-title { display: flex; align-items: center; gap: 10px; }
+.page-title h1 { font-size: 18px; font-weight: 600; }
+.tag-badge {
+  font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-business-primary);
+  background: rgba(86, 134, 254, 0.1); padding: 2px 8px; border-radius: 999px;
+}
+.toggles { display: flex; gap: 8px; }
+.theme-btn {
+  height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--page-border);
+  background: var(--page-card); color: var(--page-text); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+
+.single-stage { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.showcase-card {
+  width: 100%; max-width: 520px; background: var(--page-card); border: 1px solid var(--page-border);
+  border-radius: 16px; padding: 18px; box-shadow: 0 6px 20px rgba(0,0,0,.03); display: flex; flex-direction: column; gap: 14px;
+}
+.card-header { display: flex; align-items: center; justify-content: space-between; }
+.header-left { display: flex; align-items: center; gap: 8px; }
+.ver-tag { font-size: 11px; font-weight: 600; color: #fff; background: var(--dsw-static-amber-500); padding: 2px 7px; border-radius: 6px; }
+.height-meter {
+  font-size: 12px; font-weight: 600; color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); padding: 2px 8px; border-radius: 6px;
+}
+
+.tab-controls {
+  display: flex; gap: 6px; background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); padding: 3px; border-radius: 9px;
+}
+.tab-controls button {
+  flex: 1; height: 26px; border: none; background: none; color: var(--page-muted); font: inherit; font-size: 12px; font-weight: 500; border-radius: 6px; cursor: pointer;
+}
+.tab-controls button.active {
+  background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-weight: 600; box-shadow: 0 2px 4px rgba(15,17,21,.05);
+}
+
+.sim-wrap { display: flex; justify-content: center; padding: 16px 0; background: var(--dsw-alias-bg-module-platform); border-radius: 12px; border: 1px dashed var(--page-border); }
+
+/* Popup 外框 */
+.popup-frame.w360 { width: 360px; height: 270px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); border-radius: 14px; box-shadow: 0 12px 32px rgba(15,17,21,.10); overflow: hidden; position: relative; }
+.v6-box { display: flex; width: 360px; height: 270px; }
+.v6-rail { width: 44px; flex: none; background: var(--dsw-alias-bg-module-platform); border-right: 1px solid var(--dsw-alias-border-l1); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 8px; }
+.v6-rail-btn { width: 34px; height: 34px; border: none; border-radius: 8px; background: none; color: var(--dsw-alias-label-caption); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; position: relative; }
+.v6-rail-btn.active { background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-label-primary); }
+.v6-rail-btn .dot-badge { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--dsh-mgr-sem-waiting); }
+
+.v6-panel { flex: 1; min-width: 0; padding: 12px 14px 10px; display: flex; flex-direction: column; height: 270px; overflow-y: auto; }
+.v6-panel.hidden { display: none !important; }
+.v6-panel-title { font-size: 13.5px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex: none; }
+.sessions-count-pill { font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-business-primary); background: rgba(86,134,254,0.1); border-radius: 999px; padding: 1px 8px; }
+
+/* 微卡片组件 */
+.sessions-cards-wrap { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; flex: 1; padding-right: 2px; }
+.sessions-cards-wrap::-webkit-scrollbar { width: 4px; }
+.sessions-cards-wrap::-webkit-scrollbar-thumb { background: var(--dsw-alias-border-l2); border-radius: 4px; }
+
+.m-card {
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 7px;
+  padding: 5px 7px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all .15s ease;
+}
+.m-card:hover { border-color: var(--dsw-alias-border-l2); }
+.m-card.is-waiting {
+  border-left: 3px solid var(--dsh-mgr-sem-waiting);
+  background: linear-gradient(to right, rgba(245, 158, 11, 0.04), var(--dsw-alias-bg-base) 40%);
+}
+.m-card.is-stopped {
+  border-left: 3px solid var(--dsw-alias-border-l3);
+}
+
+.m-card-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.m-card-title { flex: 1; font-size: 11.5px; font-weight: 500; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 中性幽灵已读微按钮 */
+.m-card-btn-read {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l1);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.1s ease;
+}
+.m-card-btn-read:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* 子任务守护坞 */
+.subagent-dock {
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: 5px;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dock-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  background: var(--dsw-alias-bg-base); border: 1px solid var(--dsw-alias-border-l1); border-radius: 3px; padding: 2px 5px; font-size: 10.5px;
+}
+
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; border-radius: 8px; font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+.btn.ghost { background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-state-business-primary); }
+.btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; }
+.dot.green { color: var(--dsh-mgr-sem-completed); background: currentColor; border-radius: 50%; }
+.dot.amber { color: var(--dsh-mgr-sem-waiting); background: currentColor; border-radius: 50%; }
+.dot.breathe { animation: dsh-dot-breathe 2.2s var(--ds-ease-in-out) infinite; }
+</style>
+</head>
+<body>
+
+  <header class="top-bar">
+    <div class="page-title">
+      <h1>Whalekeeper · 会话状态感知设计走查</h1>
+      <span class="tag-badge">方案 2 · 微卡片仪表盘</span>
+    </div>
+    <div class="toggles">
+      <button class="theme-btn" onclick="toggleGlobalTheme()">🌓 切换深浅外观</button>
+    </div>
+  </header>
+
+  <main class="single-stage">
+    <section class="showcase-card">
+      <div class="card-header">
+        <div class="header-left">
+          <span class="ver-tag">V2 CARDS</span>
+          <h3>微卡片守护舱（Card-based Dashboard）</h3>
+        </div>
+        <span class="height-meter">270px 恒定</span>
+      </div>
+
+      <div class="tab-controls">
+        <button id="tab-btn-dash" onclick="switchV6('dash')">概览面板</button>
+        <button class="active" id="tab-btn-sess" onclick="switchV6('sess')">会话面板 (4)</button>
+        <button id="tab-btn-sett" onclick="switchV6('sett')">首选项设置</button>
+      </div>
+
+      <div class="sim-wrap">
+        <div class="popup-frame w360">
+          <div class="v6-box">
+
+            <nav class="v6-rail">
+              <button class="v6-rail-btn" id="v6-r-dash" onclick="switchV6('dash')"><span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span></button>
+              <button class="v6-rail-btn active" id="v6-r-sess" onclick="switchV6('sess')"><span data-dsh-icon="IconNewChatOutline16" data-size="16"></span><span id="v6-sess-badge" class="dot-badge"></span></button>
+              <button class="v6-rail-btn" id="v6-r-sett" onclick="switchV6('sett')"><span data-dsh-icon="IconSettingsOutline16" data-size="16"></span></button>
+              <div style="margin-top:auto"><span class="dot green breathe"></span></div>
+            </nav>
+
+            <div class="v6-panel hidden panel-slide-in" id="v6-p-dash">
+              <div class="v6-panel-title"><span>Whalekeeper</span><span class="sessions-count-pill" style="color:var(--dsw-alias-label-caption);background:var(--dsw-alias-bg-module-platform)">3080</span></div>
+              <button class="btn ghost" style="width:100%" onclick="switchV6('sess')">查看会话列表</button>
+            </div>
+
+            <div class="v6-panel panel-slide-in" id="v6-p-sess">
+              <div class="v6-panel-title">
+                <span>会话状态感知</span>
+                <span class="sessions-count-pill">4 活跃</span>
+              </div>
+              <div class="sessions-cards-wrap" id="cards-container"></div>
+              <div style="margin-top:auto;padding-top:6px;flex:none">
+                <button class="btn ghost" style="width:100%;height:32px">前往 Web UI 统一处理</button>
+              </div>
+            </div>
+
+            <div class="v6-panel hidden panel-slide-in" id="v6-p-sett">
+              <div class="v6-panel-title"><span>首选项设置</span></div>
+              <div style="font-size:11.5px;padding:8px 0">完成会话保留时长: 30 分钟</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+const initialSessions = [
+  { sessionId: "s1", title: "修改端口后重启仍为8080的问题 (1)", state: "waiting", updatedAt: Date.now() - 2*60000, hasActiveChildren: false, childRuns: [] },
+  { sessionId: "s2", title: "马斯克的菲勒斯与火箭之喻", state: "working", updatedAt: Date.now() - 4*60000, hasActiveChildren: false, childRuns: [] },
+  { sessionId: "s3", title: "WSL配置错误排查", state: "completed", updatedAt: Date.now() - 6*60000, hasActiveChildren: true, childRuns: [{ label: "检索代码" }, { label: "审查 PR 方案" }] },
+  { sessionId: "s4", title: "生成Anthem For No State后摇音乐", state: "completed", updatedAt: Date.now() - 14*60000, hasActiveChildren: false, childRuns: [] }
+];
+
+let currentSessions = JSON.parse(JSON.stringify(initialSessions));
+let isDark = false;
+function toggleGlobalTheme() {
+  isDark = !isDark;
+  if (isDark) { document.documentElement.setAttribute('data-theme', 'dark-preview'); document.body.setAttribute('data-ds-dark-theme', 'true'); }
+  else { document.documentElement.removeAttribute('data-theme'); document.body.removeAttribute('data-ds-dark-theme'); }
+}
+if (isDark) toggleGlobalTheme();
+
+function switchV6(tab) {
+  ['dash', 'sess', 'sett'].forEach(t => {
+    document.getElementById('v6-r-' + t).classList.toggle('active', t === tab);
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === tab);
+    document.getElementById('v6-p-' + t).classList.toggle('hidden', t !== tab);
+  });
+}
+
+function renderSessions() {
+  const container = document.getElementById('cards-container');
+  container.innerHTML = currentSessions.map(item => {
+    let isWaiting = item.state === 'waiting';
+    let isWorking = item.state === 'working';
+    let isStopped = item.state === 'completed' && item.hasActiveChildren;
+    let isCompletedOnly = item.state === 'completed' && !item.hasActiveChildren;
+
+    let dotHtml = '';
+    let stateHtml = '';
+
+    if (isWaiting) {
+      dotHtml = '<span class="dot amber breathe"></span>';
+      stateHtml = '<span style="font-size:11px;color:var(--dsh-mgr-sem-waiting);font-weight:500">待确认</span>';
+    } else if (isWorking) {
+      dotHtml = typeof renderStateMatrix === 'function' ? renderStateMatrix(10) : '<span class="dot blue"></span>';
+      stateHtml = '<span class="shimmer-text" style="font-size:11px">进行中</span>';
+    } else if (isStopped) {
+      dotHtml = '<span class="dot green"></span>';
+      stateHtml = '<span style="font-size:11px;color:var(--dsw-alias-label-caption)">已停止</span>';
+    } else {
+      dotHtml = '<span class="dot green"></span>';
+      stateHtml = `
+        <div style="display:flex;align-items:center;gap:4px">
+          <span style="font-size:11px;color:var(--dsw-alias-label-caption)">已完成</span>
+          <button class="m-card-btn-read" onclick="alert('已标记为已读')">已读</button>
+        </div>
+      `;
+    }
+
+    let dockHtml = '';
+    if (isStopped && item.childRuns) {
+      dockHtml = `
+        <div class="subagent-dock">
+          ${item.childRuns.map(c => `
+            <div class="dock-chip">
+              <div style="display:flex;align-items:center;gap:4px">
+                ${typeof renderStateMatrix === 'function' ? renderStateMatrix(8) : '<span class="dot blue"></span>'}
+                <span style="color:var(--dsw-alias-label-secondary)">${c.label}</span>
+              </div>
+              <span class="shimmer-text">进行中</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="m-card ${isWaiting ? 'is-waiting' : (isStopped ? 'is-stopped' : '')}">
+        <div class="m-card-row">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+            ${dotHtml}
+            <span class="m-card-title">${item.title}</span>
+          </div>
+          ${stateHtml}
+        </div>
+        ${dockHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (typeof injectDSHAssets === 'function') injectDSHAssets();
+  renderSessions();
+});
+  </script>
+</body>
+</html>

@@ -66,7 +66,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const MAX_MSG_BYTES = 1024 * 1024; // 入站帧长度上限 1MB
 const WATCHDOG_MS = 15000; // 15 秒无消息看门狗
 const LOG_TAIL_LINES = 20; // 错误响应附带的日志尾部行数
-const ACTIONS = ['ping', 'status', 'start', 'stop', 'restart', 'adopt', 'logs'];
+const ACTIONS = ['ping', 'status', 'start', 'stop', 'restart', 'adopt', 'logs', 'sessions'];
 
 // M3 日志查看（design §6.3 logs）：tailLines/maxBytes/beforeByte 参数边界
 const LOGS_DEFAULT_TAIL_LINES = 500;
@@ -415,6 +415,71 @@ function getHealth(port, timeoutMs) {
           }
           if (parsed && typeof parsed === 'object' && parsed.ok === true) {
             finish(parsed);
+          } else {
+            finish(null);
+          }
+        });
+        res.on('error', () => finish(null));
+      });
+      req.on('timeout', () => finish(null));
+      req.on('error', () => finish(null));
+    } catch (err) {
+      finish(null);
+    }
+  });
+}
+
+// M9 会话摘要探测：GET /_manager/sessions（dsh-lifecycle 插件端点，1.5s 超时）。
+// 仅 HTTP 200 且 body JSON.ok===true 才返回 items 数组；任何失败（超时/连接拒绝/
+// 非 200/JSON 非法/ok!==true/响应体超 128KB）一律静默返回 null，绝不向上抛错
+// （design §8.10：sessions 是不可用即降级的可选富状态）。
+function getManagerSessions(port, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      try { req.destroy(); } catch (e) { /* 忽略 */ }
+      resolve(v);
+    };
+    let req;
+    try {
+      req = http.get({
+        host: '127.0.0.1',
+        port,
+        path: '/_manager/sessions',
+        timeout: timeoutMs || 1500,
+        headers: { Connection: 'close' },
+        agent: false,
+      }, (res) => {
+        const code = res.statusCode || 0;
+        if (code !== 200) {
+          res.resume();
+          finish(null);
+          return;
+        }
+        let body = '';
+        let truncated = false;
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (truncated) return;
+          body += chunk;
+          if (body.length > 128 * 1024) {
+            truncated = true; // 超过 128KB 截断，视为失败
+            finish(null);
+          }
+        });
+        res.on('end', () => {
+          if (truncated) return;
+          let parsed;
+          try {
+            parsed = JSON.parse(body);
+          } catch (err) {
+            finish(null);
+            return;
+          }
+          if (parsed && typeof parsed === 'object' && parsed.ok === true && Array.isArray(parsed.items)) {
+            finish(parsed.items);
           } else {
             finish(null);
           }
@@ -1654,24 +1719,33 @@ async function actionRestart(payload) {
   }
   // 先 stop（含优雅尝试），等待端口关闭（最长 10s，stopCore 内部处理）；method 不上报（restart 仍是 start 语义）
   await stopCore(rec);
-  // 再以 run 记录为准重新 start（以记录为准，而非请求 payload）
+  // 重启参数 = 请求 payload 显式字段优先，run 记录回退（2026-08-24 修复）：
+  // 原实现以记录为准、完全忽略 payload —— 协议 §6.2 声明 port/profile 为 start/restart
+  // 用，popup 在「设置改端口/改 profile 后点重启」时携带新值，却被丢弃，导致重启仍起旧端口。
+  // 现语义：payload 显式给出 host/port/profile/extraArgs 时以 payload 为准（非 adopted 的
+  // extraArgs 仍走 §12.1 白名单），未给出时回退 run 记录（面板空 payload / 旧客户端行为不变；
+  // M4 `--port 0` 血统的 `requestedPort===0 → 0` 语义保留）。
+  const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   if (rec.adopted === true) {
-    // 接管血统：原 argv 归一化重放，跳过 §12.1 白名单（参数源自本机进程表，§6.7），
-    // 且新记录延续 adopted 标记（后续 restart 保持同语义）。
-    // 重放前对危险参数（--host/--trusted-host/--port/--profile/.. 穿越）做黑名单拒绝。
+    // 接管血统（§6.7）：extraArgs 恒源自接管时的本机进程表（黑名单过滤，不走白名单），
+    // 生命周期参数（host/port/profile）默认记录值，payload 显式给出时以 payload 为准
+    // ——但必须先过 validateStartPayload 白名单校验（payload 属扩展输入通道，§12.1）。
+    const life = validateStartPayload({
+      host: p.host !== undefined ? p.host : (rec.host || DEFAULT_HOST),
+      port: p.port !== undefined ? p.port : rec.port,
+      profile: p.profile !== undefined ? p.profile : (rec.profile || 'web'),
+    });
     return startDshCore({
-      host: rec.host || DEFAULT_HOST,
-      port: rec.port,
-      profile: rec.profile || 'web',
+      ...life,
       extraArgs: filterAdoptedExtraArgs(Array.isArray(rec.extraArgs) ? rec.extraArgs : []),
     }, true);
   }
   const startPayload = {
-    host: rec.host || DEFAULT_HOST,
+    host: p.host !== undefined ? p.host : (rec.host || DEFAULT_HOST),
     // M4：--port 0 血统按动态端口语义重放（OS 重新分配），其余按记录端口
-    port: rec.requestedPort === 0 ? 0 : rec.port,
-    profile: rec.profile || 'web',
-    extraArgs: Array.isArray(rec.extraArgs) ? rec.extraArgs : [],
+    port: p.port !== undefined ? p.port : (rec.requestedPort === 0 ? 0 : rec.port),
+    profile: p.profile !== undefined ? p.profile : (rec.profile || 'web'),
+    extraArgs: p.extraArgs !== undefined ? p.extraArgs : (Array.isArray(rec.extraArgs) ? rec.extraArgs : []),
   };
   return actionStart(startPayload);
 }
@@ -1868,6 +1942,22 @@ function actionLogs(payload) {
   };
 }
 
+// M9 会话摘要（design §8.10）：只读、无锁——读取 dsh-lifecycle 插件端点
+// /_manager/sessions（1.5s 超时）。不可用即降级：无 run 记录或端点不可达
+// 一律返回 { available:false, items:[] }，绝不抛错（会话区由扩展侧隐藏/提示，
+// 不阻断其余功能）。
+const SESSIONS_MAX_ITEMS = 50; // live 会话防御性上限（实际为个位数~几十）
+
+async function actionSessions() {
+  const rec = readRunRecord();
+  if (!rec || typeof rec.port !== 'number') {
+    return { available: false, items: [] };
+  }
+  const list = await getManagerSessions(rec.port, 1500);
+  if (list === null) return { available: false, items: [] };
+  return { available: true, items: list.slice(0, SESSIONS_MAX_ITEMS) };
+}
+
 // ---------------------------------------------------------------------------
 // 请求处理入口（两种模式共用）
 // ---------------------------------------------------------------------------
@@ -1893,6 +1983,7 @@ async function handleRequest(req) {
       case 'restart': result = await actionRestart(payload); break;
       case 'adopt': result = await actionAdopt(payload); break;
       case 'logs': result = actionLogs(payload); break;
+      case 'sessions': result = await actionSessions(); break;
       default:
         return { id, ok: false, result: null, error: { code: 'BAD_REQUEST', message: '非法 action: ' + req.action } };
     }

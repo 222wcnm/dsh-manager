@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSH Web UI 官方原生资产与动态交互展台 (Gallery & Animation Lab)</title>
+<script src="dsh-assets-library.js"></script>
+<style>
+/* ============================================================================
+ * DSH Web UI 原厂设计系统与动效全景展台
+ * 令牌与关键帧全部 100% 提取自 @deepseek-ai/dsh-web-frontend
+ * ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* 基础静态色板 */
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  /* 浅色 Alias 令牌 */
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-50);
+  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-button-primary-fill: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+
+  /* 缓动与时间令牌（原厂） */
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration: 0.2s;
+  --ds-transition-duration-slow: 0.6s;
+
+  /* 展台页面容器色 */
+  --page-bg: #f3f5f8;
+  --page-card: #ffffff;
+  --page-text: #0f1115;
+  --page-muted: #61666b;
+  --page-border: rgba(0,0,0,0.08);
+}
+
+/* 深色模式（完全对齐 dsh-tokens-dark.css） */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --dsw-alias-bg-base: rgb(22, 23, 26);
+  --dsw-alias-bg-layer-2: rgb(30, 32, 37);
+  --dsw-alias-bg-module-platform: rgb(30, 32, 37);
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
+  --dsw-alias-label-primary: rgb(241, 243, 245);
+  --dsw-alias-label-secondary: rgb(173, 178, 184);
+  --dsw-alias-label-caption: rgb(97, 102, 107);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-button-primary-fill: rgb(241, 243, 245);
+  --dsw-alias-button-primary-hover: rgb(215, 219, 224);
+  --dsw-alias-label-primary-foreground: rgb(15, 17, 21);
+  --dsw-alias-state-business-primary: rgb(86, 134, 254);
+
+  --page-bg: #101216;
+  --page-card: #17191e;
+  --page-text: #f1f3f5;
+  --page-muted: #9aa0a6;
+  --page-border: rgba(255,255,255,0.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: var(--dsw-font-family);
+  padding: 28px 36px 100px;
+  line-height: 1.5;
+  transition: background .2s ease, color .2s ease;
+}
+
+/* ============================================================================
+   原厂动效 KEYFRAMES 库 (100% 提取自 dsh 前端)
+   ========================================================================== */
+
+/* 1. 小鲸鱼游弋动效 (pXSMma_hero-fish-swim) */
+@keyframes dsh-fish-swim {
+  0%, 100% { transform: translate(0) rotate(0); }
+  35% { transform: translate(-1.5px, -1px) rotate(-6deg); }
+  70% { transform: translate(1px, 0.5px) rotate(4deg); }
+}
+.anim-fish-hover {
+  cursor: pointer;
+  display: inline-flex;
+  transform-origin: 50% 60%;
+}
+.anim-fish-hover:hover,
+.anim-fish-loop {
+  animation: dsh-fish-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out) infinite;
+}
+
+/* 2. 分层圆点 2.2s 同步全局呼吸 */
+@keyframes dsh-dot-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes dsh-halo-breathe {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.16; }
+}
+
+/* 3. 状态点阵波浪追逐 (_dsh-state-dot-chase) */
+@keyframes dsh-dot-chase {
+  0%, 12.4% { opacity: 1; }
+  12.5%, 24.9% { opacity: 0.6; }
+  25%, 37.4% { opacity: 0.35; }
+  37.5%, 100% { opacity: 0.15; }
+}
+
+/* 4. 状态高光流光扫光 (Md3f7G_dsh-turn-status-shimmer) */
+@keyframes dsh-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.anim-shimmer {
+  background: linear-gradient(90deg, var(--dsw-alias-label-primary) 0%, var(--dsw-static-deepseek-450) 50%, var(--dsw-alias-label-primary) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 2.2s linear infinite;
+  display: inline-block;
+}
+
+/* 5. 旋转 Loading 动效 (_spin_1ionb_47) */
+@keyframes dsh-spin {
+  to { transform: rotate(360deg); }
+}
+.anim-spin {
+  animation: dsh-spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* 6. 浮层/Toast 轻柔弹入 (_dsh-toast-in) */
+@keyframes dsh-pop-in {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-pop-in {
+  animation: dsh-pop-in 0.16s var(--ds-ease-in-out) forwards;
+}
+
+/* 7. 导轨切换平滑滑入 (hHd-Xa_rail-in) */
+@keyframes dsh-rail-slide-in {
+  0% { opacity: 0; transform: translateX(8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.anim-slide-in {
+  animation: dsh-rail-slide-in 0.18s var(--ds-ease-in-out) forwards;
+}
+
+/* 页面排版 */
+.container { max-width: 1400px; margin: 0 auto; }
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--page-border);
+}
+.header h1 {
+  font-size: 22px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.badge-tag {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.nav-links { display: flex; gap: 10px; }
+.nav-btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--page-border);
+  background: var(--page-card);
+  color: var(--page-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all .15s ease;
+}
+.nav-btn:hover { border-color: rgba(0,0,0,.25); }
+
+/* 分区区块 */
+.section { margin-bottom: 36px; }
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title span.count {
+  font-size: 12px;
+  color: var(--page-muted);
+  font-weight: 400;
+}
+
+/* 图标网格 */
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.icon-card {
+  background: var(--page-card);
+  border: 1px solid var(--page-border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.icon-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.04);
+}
+.icon-card-head { display: flex; align-items: center; justify-content: space-between; }
+.icon-name { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.icon-cat {
+  font-size: 10.5px; color: var(--page-muted);
+  background: var(--dsw-alias-bg-module-platform); padding: 1px 6px; border-radius: 4px;
+}
+.icon-scales {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 12px 0 8px;
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: 8px;
+}
+.scale-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* 动效展台卡片 */
+.anim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.anim-card {
+  background: var(--page-card);
+  border: 1px solid var(--page-border);
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.anim-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.anim-stage {
+  height: 90px;
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  overflow: hidden;
+  position: relative;
+}
+.anim-desc {
+  font-size: 12px;
+  color: var(--page-muted);
+  line-height: 1.5;
+}
+
+/* 分层圆点基础 */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsw-static-neutral-bluish-400);
+}
+.dot:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .1;
+}
+.dot:after {
+  content: "";
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dot.green { color: var(--dsw-static-green-500); }
+.dot.blue { color: var(--dsw-static-deepseek-450); }
+.dot.amber { color: var(--dsw-static-amber-500); }
+.dot.red { color: var(--dsw-static-red-600); }
+.dot.breathe:after { animation: dsh-dot-breathe 2.2s var(--ds-ease-in-out) infinite; }
+.dot.breathe:before { animation: dsh-halo-breathe 2.2s var(--ds-ease-in-out) infinite; }
+
+/* 点阵追逐行 */
+.matrix-row { display: flex; gap: 4px; }
+.matrix-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-static-deepseek-450);
+  animation: dsh-dot-chase 1.2s infinite;
+}
+.matrix-dot:nth-child(1) { animation-delay: 0s; }
+.matrix-dot:nth-child(2) { animation-delay: 0.15s; }
+.matrix-dot:nth-child(3) { animation-delay: 0.3s; }
+.matrix-dot:nth-child(4) { animation-delay: 0.45s; }
+.matrix-dot:nth-child(5) { animation-delay: 0.6s; }
+
+/* 原生按钮体系展台 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .1s ease, border-color .1s ease, transform .1s var(--ds-ease-in-out);
+}
+.btn:active:not(:disabled) { transform: scale(0.96); }
+.btn.primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-weight: 500;
+}
+.btn.primary:hover { background: var(--dsw-alias-button-primary-hover); }
+.btn.outline {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+}
+.btn.outline:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.btn.danger {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-state-error-primary);
+}
+.btn.danger:hover { background: rgba(236,19,19,.08); }
+.btn.ghost {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- 顶栏导航 -->
+  <header class="header">
+    <div>
+      <h1>
+        <span class="anim-fish-hover" title="悬停小鲸鱼游动">
+          <script>document.write(renderDSHIcon('FishLogo', 24));</script>
+        </span>
+        <span>DSH Web UI 原生资产与动效展台</span>
+        <span class="badge-tag">100% 原厂无损提取</span>
+      </h1>
+      <div style="font-size:12.5px;color:var(--page-muted);margin-top:4px">
+        已提取全量矢量图标、官方 Keyframes 缓动、设计令牌及组件级交互反馈
+      </div>
+    </div>
+    <div class="nav-links">
+      <button class="nav-btn" onclick="document.body.toggleAttribute('data-theme')">
+        <span data-dsh-icon="IconDarkOutline16" data-size="14"></span>
+        <span>切换深浅主题</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================================
+       第一区：全量原生 SVG 矢量图标库
+       ========================================================================== -->
+  <section class="section">
+    <div class="section-title">
+      <span data-dsh-icon="IconCodeOutline16" data-size="16"></span>
+      <span>全量原生矢量图标库</span>
+      <span class="count">共 12 组核心原厂资产</span>
+    </div>
+
+    <div class="icon-grid" id="icons-container">
+      <!-- 动态填充 -->
+    </div>
+  </section>
+
+
+  <!-- ============================================================================
+       第二区：原厂动态交互动效展台 (Animation Lab)
+       ========================================================================== -->
+  <section class="section">
+    <div class="section-title">
+      <span data-dsh-icon="IconPlayOutline16" data-size="16"></span>
+      <span>原厂动态交互动效展台 (Animation Lab)</span>
+      <span class="count">官方 Keyframes 与 Cubic-Bezier</span>
+    </div>
+
+    <div class="anim-grid">
+      <!-- 动效 1: 鲸鱼游动 -->
+      <div class="anim-card">
+        <h3>
+          <span>1. 小鲸鱼游弋动效 (Fish Swim)</span>
+          <span style="font-size:11px;color:var(--dsw-alias-state-business-primary)">悬停/循环</span>
+        </h3>
+        <div class="anim-stage">
+          <div class="anim-fish-loop" title="常驻游弋">
+            <script>document.write(renderDSHIcon('FishLogo', 36));</script>
+          </div>
+          <div class="anim-fish-hover" title="悬停游弋" style="padding:10px;border:1px dashed var(--page-border);border-radius:8px">
+            <script>document.write(renderDSHIcon('FishLogo', 28));</script>
+          </div>
+        </div>
+        <p class="anim-desc">原厂 <code>hero-fish-swim</code> 关键帧，以 <code>50% 60%</code> 为锚点发生轻微倾角与位移，灵动且自然。</p>
+      </div>
+
+      <!-- 动效 2: 2.2s 同步全局呼吸 -->
+      <div class="anim-card">
+        <h3>
+          <span>2. 分层圆点同步呼吸 (Breathe)</span>
+          <span style="font-size:11px;color:var(--dsw-static-green-500)">2.2s 同相位</span>
+        </h3>
+        <div class="anim-stage">
+          <div style="display:flex;gap:18px;align-items:center">
+            <span class="dot green breathe"></span>
+            <span class="dot blue breathe"></span>
+            <span class="dot amber breathe"></span>
+            <span class="dot red breathe"></span>
+          </div>
+        </div>
+        <p class="anim-desc">外圈 10% 光晕与内实心核以 <code>2.2s cubic-bezier(0.4, 0, 0.2, 1)</code> 同频脉动，无割裂感。</p>
+      </div>
+
+      <!-- 动效 3: 状态流光扫光 -->
+      <div class="anim-card">
+        <h3>
+          <span>3. 进行中流光扫光 (Shimmer)</span>
+          <span style="font-size:11px;color:var(--dsw-static-deepseek-450)">1.8s Linear</span>
+        </h3>
+        <div class="anim-stage">
+          <div class="anim-shimmer" style="font-size:15px;font-weight:600">
+            DSH Session Working...
+          </div>
+        </div>
+        <p class="anim-desc">原厂 <code>dsh-turn-status-shimmer</code>，利用背景渐变裁剪与线性滚动呈现任务执行在途质感。</p>
+      </div>
+
+      <!-- 动效 4: 旋转 Loading -->
+      <div class="anim-card">
+        <h3>
+          <span>4. 刷新与加载旋转 (Spin)</span>
+          <span style="font-size:11px;color:var(--page-muted)">0.8s 匀速</span>
+        </h3>
+        <div class="anim-stage">
+          <span class="anim-spin" style="color:var(--dsw-alias-state-business-primary)">
+            <script>document.write(renderDSHIcon('IconRefreshOutline16', 22));</script>
+          </span>
+        </div>
+        <p class="anim-desc">官方 <code>_spin</code> 动画，用于状态刷新、请求 Pending 与后台转圈反馈。</p>
+      </div>
+
+      <!-- 动效 5: 官方原版 8 点环形点阵跑马灯 (StateMatrix Dot Chase) -->
+      <div class="anim-card">
+        <h3>
+          <span>5. 会话进行中 8 点环形点阵跑马灯 (StateMatrix)</span>
+          <span style="font-size:11px;color:var(--dsw-static-deepseek-450)">8 单元顺时针 125ms</span>
+        </h3>
+        <div class="anim-stage">
+          <div style="display:flex;align-items:center;gap:20px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <script>document.write(renderStateMatrix(10));</script>
+              <span style="font-size:10px;color:var(--page-muted)">10px(原厂)</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <script>document.write(renderStateMatrix(16));</script>
+              <span style="font-size:10px;color:var(--page-muted)">16px</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <script>document.write(renderStateMatrix(24));</script>
+              <span style="font-size:10px;color:var(--page-muted)">24px</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <script>document.write(renderStateMatrix(32));</script>
+              <span style="font-size:10px;color:var(--page-muted)">32px</span>
+            </div>
+          </div>
+        </div>
+        <p class="anim-desc">原厂 <code>_matrix_10orb_4 + _cell_10orb_54</code>，8 个 <code>2x2</code> 像素方块沿 <code>10x10</code> 视口外圈顺时针流动，延迟 <code>(idx-8)*125ms</code>。</p>
+      </div>
+
+      <!-- 动效 6: 触觉按压反馈 -->
+      <div class="anim-card">
+        <h3>
+          <span>6. 按钮触觉按压 (Tactile Scale)</span>
+          <span style="font-size:11px;color:var(--page-muted)">0.96x 缓动</span>
+        </h3>
+        <div class="anim-stage">
+          <div style="display:flex;gap:8px">
+            <button class="btn primary">点击按压</button>
+            <button class="btn danger">危险操作</button>
+          </div>
+        </div>
+        <p class="anim-desc">点击（<code>:active</code>）即刻轻微下沉 <code>scale(0.96)</code>，0.1s 快速回弹，手感清脆。</p>
+      </div>
+
+      <!-- 模块 7: 官方 Brand Badge 矩形微胶囊 (支持自定义任意字符) -->
+      <div class="anim-card" style="grid-column: 1 / -1">
+        <h3>
+          <span>7. 官方 Brand Wordmark &amp; 矩形微胶囊 (支持自定义任意字符)</span>
+          <span style="font-size:11px;color:var(--dsw-static-deepseek-450)">原厂 Wordmark 矩形资产</span>
+        </h3>
+        <div class="anim-stage" style="flex-direction:column;gap:16px;align-items:flex-start;padding:18px 24px">
+          <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+            <!-- 官方原版 -->
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--page-bg);border:1px solid var(--dsw-alias-border-l2);border-radius:8px">
+              <span class="anim-fish-hover"><script>document.write(renderDSHIcon('FishLogo', 18));</script></span>
+              <span style="font-weight:600;font-size:14px">deepseek</span>
+              <span data-dsh-icon="BrandBadge" data-text="HARNESS"></span>
+              <span style="font-size:11px;color:var(--page-muted);margin-left:6px">(官方原厂)</span>
+            </div>
+
+            <!-- 项目品牌版 -->
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--page-bg);border:1px solid var(--dsw-alias-border-l2);border-radius:8px">
+              <span class="anim-fish-hover"><script>document.write(renderDSHIcon('FishLogo', 18));</script></span>
+              <span style="font-weight:600;font-size:14px">Whalekeeper</span>
+              <span data-dsh-icon="BrandBadge" data-text="MANAGER"></span>
+              <span style="font-size:11px;color:var(--page-muted);margin-left:6px">(项目定制)</span>
+            </div>
+
+            <!-- 纯矩形徽标组合 -->
+            <div style="display:flex;align-items:center;gap:8px">
+              <span data-dsh-icon="BrandBadge" data-text="HARNESS"></span>
+              <span data-dsh-icon="BrandBadge" data-text="MANAGER"></span>
+              <span data-dsh-icon="BrandBadge" data-text="KEEPER"></span>
+              <span data-dsh-icon="BrandBadge" data-text="DEV"></span>
+              <span data-dsh-icon="BrandBadge" data-text="3080"></span>
+            </div>
+          </div>
+
+          <!-- 自定义交互测试区 -->
+          <div style="display:flex;align-items:center;gap:12px;width:100%;padding-top:10px;border-top:1px dashed var(--dsw-alias-border-l2)">
+            <span style="font-size:12px;color:var(--page-muted)">实时自定义字符测试:</span>
+            <input type="text" id="custom-badge-input" value="HARNESS" maxlength="12" style="height:26px;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--page-bg);color:var(--page-text);font-size:12px;outline:none" oninput="updateLiveBadge(this.value)">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="anim-fish-hover"><script>document.write(renderDSHIcon('FishLogo', 16));</script></span>
+              <span style="font-weight:600;font-size:13px">Whalekeeper</span>
+              <span id="live-badge-output" class="dsh-brand-badge">HARNESS</span>
+            </div>
+          </div>
+        </div>
+        <p class="anim-desc">从官方 <code>BrandWordmark</code> 提炼的微型矩形反色胶囊，支持传入任意自定义大写文本，完美适配浅色/深色主题。</p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    function updateLiveBadge(val) {
+      const el = document.getElementById('live-badge-output');
+      if (el) el.textContent = (val || 'HARNESS').toUpperCase();
+    }
+  </script>
+
+  <!-- ============================================================================
+       第四区：资产血统与出处严格审计谱系 (Asset Lineage & Provenance Audit)
+       ========================================================================== -->
+  <section class="section">
+    <div class="section-title">
+      <span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span>
+      <span>资产血统与出处严格审计谱系 (Provenance Audit)</span>
+      <span class="count">官方自带 vs 扩展原创清晰隔离</span>
+    </div>
+
+    <div style="background:var(--page-card);border:1px solid var(--page-border);border-radius:14px;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left">
+        <thead>
+          <tr style="background:var(--dsw-alias-bg-module-platform);border-bottom:1px solid var(--page-border)">
+            <th style="padding:10px 14px;font-weight:600">资产名称 / 模块</th>
+            <th style="padding:10px 14px;font-weight:600">血统分类</th>
+            <th style="padding:10px 14px;font-weight:600">物理出处包名 / 文件位置</th>
+            <th style="padding:10px 14px;font-weight:600">技术特征与原厂映射</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">12 组核心矢量图标</td>
+            <td style="padding:9px 14px"><span style="background:rgba(86,134,254,.1);color:var(--dsw-static-deepseek-450);padding:2px 6px;border-radius:4px;font-weight:600">官方 100% 自带</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">@deepseek-ai/dsh-web-frontend (dist/assets/index-ClqxG24t.js)</td>
+            <td style="padding:9px 14px">精准 viewBox、evenodd 镂空属性与原厂无损提取</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">8 点环形点阵跑马灯 (StateMatrix)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(86,134,254,.1);color:var(--dsw-static-deepseek-450);padding:2px 6px;border-radius:4px;font-weight:600">官方 100% 自带</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">@deepseek-ai/dsh-web-frontend (ql.matrix + Z0 坐标阵列)</td>
+            <td style="padding:9px 14px">8 个 2x2 单元顺时针 125ms 步进流动（Ongoing 状态专用）</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">6 大交互动效 (Keyframes)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(86,134,254,.1);color:var(--dsw-static-deepseek-450);padding:2px 6px;border-radius:4px;font-weight:600">官方 100% 自带</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">@deepseek-ai/dsh-client-ui-* & index-C6eRlFa6.css</td>
+            <td style="padding:9px 14px">hero-fish-swim, turn-shimmer, state-dot-chase, spin 等</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">设计令牌系统 (--dsw-*)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(86,134,254,.1);color:var(--dsw-static-deepseek-450);padding:2px 6px;border-radius:4px;font-weight:600">官方 100% 自带</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">@deepseek-ai/dsh-client-ui-theme (dsw-tokens-*.css)</td>
+            <td style="padding:9px 14px">中性中灰、品牌基底色、语义主色、圆角与阴影体系</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">Popup 空间架构 (V6 / V7 布局)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(34,197,94,.1);color:var(--dsw-static-green-500);padding:2px 6px;border-radius:4px;font-weight:600">扩展项目原创</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">dsh-manager (popup.html / popup-redesign-*.html)</td>
+            <td style="padding:9px 14px">侧边 Rail 导轨模式 (360x240) 与卡片微件手风琴流</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--page-border)">
+            <td style="padding:9px 14px;font-weight:500">服务运行健康监控卡 (StatusCard)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(34,197,94,.1);color:var(--dsw-static-green-500);padding:2px 6px;border-radius:4px;font-weight:600">扩展项目原创</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">dsh-manager (extension/popup.html)</td>
+            <td style="padding:9px 14px">端口检测、PID、运行时间、Node 版本的轻量运维卡片</td>
+          </tr>
+          <tr>
+            <td style="padding:9px 14px;font-weight:500">三色会话角色语义色盘 (M10.1)</td>
+            <td style="padding:9px 14px"><span style="background:rgba(34,197,94,.1);color:var(--dsw-static-green-500);padding:2px 6px;border-radius:4px;font-weight:600">扩展项目原创</span></td>
+            <td style="padding:9px 14px;font-family:monospace;color:var(--page-muted)">dsh-manager (docs/design.md §8.9)</td>
+            <td style="padding:9px 14px">待确认/进行中/完成三色角色自定义与徽标计数同源联动</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="section">
+    <div class="section-title">
+      <span data-dsh-icon="IconSettingsOutline16" data-size="16"></span>
+      <span>官方设计令牌体系 (Design Tokens)</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:12px">
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">品牌基底色</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-alias-label-primary)"></div>
+          <span style="font-size:12px;font-weight:600">Label Primary</span>
+        </div>
+      </div>
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">业务主蓝色</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-static-deepseek-500)"></div>
+          <span style="font-size:12px;font-weight:600">#4176e6 / 500</span>
+        </div>
+      </div>
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">进行中状态蓝</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-static-deepseek-450)"></div>
+          <span style="font-size:12px;font-weight:600">#5686fe / 450</span>
+        </div>
+      </div>
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">待确认琥珀黄</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-static-amber-500)"></div>
+          <span style="font-size:12px;font-weight:600">#f59e0b / 500</span>
+        </div>
+      </div>
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">成功完成绿</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-static-green-500)"></div>
+          <span style="font-size:12px;font-weight:600">#22c55e / 500</span>
+        </div>
+      </div>
+      <div style="background:var(--page-card);padding:12px;border-radius:10px;border:1px solid var(--page-border)">
+        <div style="font-size:12px;color:var(--page-muted)">错误危险红</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <div style="width:20px;height:20px;border-radius:6px;background:var(--dsw-static-red-600)"></div>
+          <span style="font-size:12px;font-weight:600">#ec1313 / 600</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// 动态渲染所有图标列表
+const iconsData = [
+  { name: 'FishLogo', cat: 'Brand', desc: '官方小鲸鱼标识' },
+  { name: 'IconSettingsOutline16', cat: 'Control', desc: '设置齿轮（evenodd 镂空）' },
+  { name: 'IconRefreshOutline16', cat: 'Control', desc: '刷新回旋箭头' },
+  { name: 'IconPanelLeftOutline16', cat: 'Navigation', desc: '工作台/侧边栏导轨' },
+  { name: 'IconNewChatOutline16', cat: 'Navigation', desc: '会话/聊天气泡' },
+  { name: 'IconCodeOutline16', cat: 'Navigation', desc: '服务控制/代码井号' },
+  { name: 'IconPlayOutline16', cat: 'Action', desc: '启动/播放' },
+  { name: 'IconStopFill16', cat: 'Action', desc: '停止/实心方块' },
+  { name: 'IconChevronDownOutline14', cat: 'Control', desc: '折叠微箭头' },
+  { name: 'IconFollowsystemOutline16', cat: 'Theme', desc: '跟随系统（显示器）' },
+  { name: 'IconLightOutline16', cat: 'Theme', desc: '浅色主题（太阳射线）' },
+  { name: 'IconDarkOutline16', cat: 'Theme', desc: '深色主题（月牙）' }
+];
+
+const container = document.getElementById('icons-container');
+iconsData.forEach(item => {
+  const card = document.createElement('div');
+  card.className = 'icon-card';
+  card.innerHTML = `
+    <div class="icon-card-head">
+      <span class="icon-name">${item.name}</span>
+      <span class="icon-cat">${item.cat}</span>
+    </div>
+    <div class="icon-scales">
+      <div class="scale-item">${renderDSHIcon(item.name, 16)}<span>16px</span></div>
+      <div class="scale-item">${renderDSHIcon(item.name, 24)}<span>24px</span></div>
+      <div class="scale-item">${renderDSHIcon(item.name, 32)}<span>32px</span></div>
+      <div class="scale-item">${renderDSHIcon(item.name, 44)}<span>44px</span></div>
+    </div>
+    <div style="font-size:11.5px;color:var(--page-muted)">${item.desc}</div>
+  `;
+  container.appendChild(card);
+});
+
+injectDSHAssets();
+</script>
+</body>
+</html>

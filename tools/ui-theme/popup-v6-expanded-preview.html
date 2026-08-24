@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whalekeeper · V6 放大版与无框通透会话列表对比预览</title>
+<script src="dsh-assets-library.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-amber-600: rgb(221, 134, 41);
+  --dsw-static-violet-500: rgb(139, 92, 246);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.10);
+  --dsw-alias-button-primary-fill: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+
+  --dsh-mgr-sem-working: var(--dsw-static-deepseek-450);
+  --dsh-mgr-sem-waiting: var(--dsw-static-amber-500);
+  --dsh-mgr-sem-completed: var(--dsw-static-green-500);
+
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --dsw-alias-bg-base: rgb(22, 23, 26);
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
+  --dsw-alias-label-primary: rgb(241, 243, 245);
+  --dsw-alias-label-secondary: rgb(173, 178, 184);
+  --dsw-alias-label-caption: rgb(97, 102, 107);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-button-primary-fill: rgb(241, 243, 245);
+  --dsw-alias-button-primary-hover: rgb(215, 219, 224);
+  --dsw-alias-label-primary-foreground: rgb(15, 17, 21);
+  --dsw-alias-bg-module-platform: rgb(30, 32, 37);
+  --dsw-alias-state-business-primary: rgb(86, 134, 254);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #f0f2f5;
+  color: #0f1115;
+  font-family: var(--dsw-font-family);
+  padding: 30px 20px;
+}
+
+.gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  justify-content: center;
+}
+
+.card-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+/* ============================================================================
+   统一动效
+   ========================================================================== */
+@keyframes dsh-dot-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes dsh-halo-breathe {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.16; }
+}
+@keyframes dsh-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================================================
+   Popup 容器 (方案 1: 380x270px 舒展版)
+   ========================================================================== */
+.popup-v6-380 {
+  width: 380px;
+  height: 270px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  display: flex;
+  border-radius: 0; /* 浏览器外壳为直角 */
+  box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+  overflow: hidden;
+  position: relative;
+}
+
+/* 左侧导轨 (46px) */
+.rail-380 {
+  width: 46px;
+  flex: none;
+  background: var(--dsw-alias-bg-module-platform);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+}
+.rail-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-caption);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: all .12s ease;
+}
+.rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.rail-btn.active {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+.dot-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsh-mgr-sem-waiting);
+}
+
+/* 右侧视口 (334px) */
+.panel-380 {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  height: 270px;
+}
+
+/* 顶栏 */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.brand-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-caption);
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态卡 */
+.statuscard {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.sc-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.state-word { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; }
+.sc-health { font-size: 12px; color: var(--dsw-alias-state-success-primary); font-weight: 500; }
+.sc-row2 { margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-caption); font-variant-numeric: tabular-nums; }
+
+/* 基础分层圆点 */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsw-static-neutral-bluish-400);
+}
+.dot:before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; opacity: .1; }
+.dot:after { content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%; border-radius: 50%; background: currentColor; }
+.dot.green, .dot-running { color: var(--dsw-alias-state-success-primary); }
+.dot.amber, .dot-waiting { color: var(--dsh-mgr-sem-waiting); }
+.dot.breathe:after, .dot-running:after { animation: dsh-dot-breathe 2.2s var(--ds-ease-in-out) infinite; }
+.dot.breathe:before, .dot-running:before { animation: dsh-halo-breathe 2.2s var(--ds-ease-in-out) infinite; }
+
+/* 按钮体系 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 6px;
+  height: 34px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.btn.primary { background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); }
+.btn.primary:hover { background: var(--dsw-alias-button-primary-hover); }
+.btn.outline { background: var(--dsw-alias-bg-base); border-color: var(--dsw-alias-border-l2); }
+.btn.outline:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.btn.danger { background: var(--dsw-alias-bg-base); border-color: var(--dsw-alias-border-l2); color: var(--dsw-alias-state-error-primary); }
+.btn.danger:hover { background: rgba(236, 19, 19, 0.08); }
+.btn.ghost { background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-state-business-primary); font-weight: 600; }
+.btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* 底栏 */
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding-top: 6px;
+  margin-top: auto;
+}
+.hint { color: var(--dsw-alias-label-caption); font-size: 11px; }
+.link { font-size: 12px; color: var(--dsw-alias-state-business-primary); background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.link:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* ============================================================================
+   🌟 原厂 DSH Web UI 风格：无外框通透会话列表 (Clean Flat List)
+   ========================================================================== */
+.clean-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-border-l2) transparent;
+}
+.clean-sessions-list::-webkit-scrollbar {
+  width: 4px;
+}
+.clean-sessions-list::-webkit-scrollbar-thumb {
+  background: var(--dsw-alias-border-l2);
+  border-radius: 4px;
+}
+.clean-sessions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 纯平会话行：无实体卡片背景，无实体边框 */
+.clean-session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: default;
+  transition: background .12s ease;
+}
+.clean-session-item:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.clean-session-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.clean-session-title {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clean-session-state {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, var(--dsw-static-deepseek-450) 0%, #a5b4fc 50%, var(--dsw-static-deepseek-450) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 2.2s linear infinite;
+  font-weight: 500;
+}
+
+/* 设置面板分组微卡片 (380px) */
+.s-section {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.s-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.s-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-primary);
+}
+.s-field-input {
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11.5px;
+}
+.theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 100%; }
+.theme-cube {
+  display: inline-flex; align-items: center; justify-content: center; height: 28px;
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; background: none; color: var(--dsw-alias-label-secondary); cursor: pointer;
+}
+.theme-cube.selected {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+</style>
+</head>
+<body>
+
+<div style="max-width:1100px;margin:0 auto">
+  <h2 style="font-size:18px;margin-bottom:6px;font-weight:700">Whalekeeper · V6 空间放大（380×270px）与原厂无框舒展会话列表走查</h2>
+  <p style="font-size:13px;color:#6b7280;margin-bottom:24px">
+    1. <strong>圆角说明</strong>：浏览器扩展宿主窗口（Chromium 顶层视口）为系统级固定直角，内部所有组件/卡片均为柔和圆角；<br>
+    2. <strong>尺寸升级</strong>：从 360×240px 提升为 380×270px（导轨 46px，视口 334px），排版更呼吸、文字更舒适；<br>
+    3. <strong>会话列表去外框</strong>：对齐 DSH Web UI 侧栏会话风格，移除每个会话的实体外框，改为平铺呼吸行 + 4px 极窄滚动条。
+  </p>
+
+  <div class="gallery">
+    <!-- 1. 会话感知页（浅色，无框列表） -->
+    <div class="card-wrap">
+      <div class="card-title">1. 会话状态感知（浅色 · 原厂无框列表）</div>
+      <div class="popup-v6-380">
+        <nav class="rail-380">
+          <button class="rail-btn" title="概览"><span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span></button>
+          <button class="rail-btn active" title="会话"><span data-dsh-icon="IconNewChatOutline16" data-size="16"></span><span class="dot-badge"></span></button>
+          <button class="rail-btn" title="设置"><span data-dsh-icon="IconSettingsOutline16" data-size="16"></span></button>
+          <div style="margin-top:auto"><span class="dot dot-running"></span></div>
+        </nav>
+        <main class="panel-380">
+          <div class="panel-header">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span>会话状态感知</span>
+              <span class="brand-tag" style="background:rgba(86,134,254,0.1);color:var(--dsw-alias-state-business-primary);border-color:transparent">4 活跃</span>
+            </div>
+            <span style="font-size:11px;color:var(--dsw-alias-label-caption)">只读感知</span>
+          </div>
+
+          <div class="clean-sessions-list">
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot amber breathe"></span>
+                <span class="clean-session-title">修改端口后重启仍为8080的问题 (1)</span>
+              </div>
+              <span class="clean-session-state" style="color:var(--dsh-mgr-sem-waiting)">待确认</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span data-dsh-icon="StateMatrix" data-size="10"></span>
+                <span class="clean-session-title">dsh-manager扩展开发下一步</span>
+              </div>
+              <span class="clean-session-state shimmer-text">进行中</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">弹出界面紧凑布局优化方案</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">DSH全局技能列表概览</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">笛音仙鹤共舞的象征主义诗景</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">生成Anthem For No State后摇音乐</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;padding-top:8px">
+            <button class="btn ghost" style="width:100%;height:32px">前往 Web UI 统一处理</button>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- 2. 会话感知页（深色，无框列表） -->
+    <div class="card-wrap" data-theme="dark">
+      <div class="card-title" style="color:#d1d5db">2. 会话状态感知（深色 · 原厂无框列表）</div>
+      <div class="popup-v6-380">
+        <nav class="rail-380">
+          <button class="rail-btn" title="概览"><span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span></button>
+          <button class="rail-btn active" title="会话"><span data-dsh-icon="IconNewChatOutline16" data-size="16"></span><span class="dot-badge"></span></button>
+          <button class="rail-btn" title="设置"><span data-dsh-icon="IconSettingsOutline16" data-size="16"></span></button>
+          <div style="margin-top:auto"><span class="dot dot-running"></span></div>
+        </nav>
+        <main class="panel-380">
+          <div class="panel-header">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span>会话状态感知</span>
+              <span class="brand-tag" style="background:rgba(86,134,254,0.14);color:var(--dsw-alias-state-business-primary);border-color:transparent">4 活跃</span>
+            </div>
+            <span style="font-size:11px;color:var(--dsw-alias-label-caption)">只读感知</span>
+          </div>
+
+          <div class="clean-sessions-list">
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot amber breathe"></span>
+                <span class="clean-session-title">修改端口后重启仍为8080的问题 (1)</span>
+              </div>
+              <span class="clean-session-state" style="color:var(--dsh-mgr-sem-waiting)">待确认</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span data-dsh-icon="StateMatrix" data-size="10"></span>
+                <span class="clean-session-title">dsh-manager扩展开发下一步</span>
+              </div>
+              <span class="clean-session-state shimmer-text">进行中</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">弹出界面紧凑布局优化方案</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">DSH全局技能列表概览</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+            <div class="clean-session-item">
+              <div class="clean-session-left">
+                <span class="dot green breathe"></span>
+                <span class="clean-session-title">笛音仙鹤共舞的象征主义诗景</span>
+              </div>
+              <span class="clean-session-state">已完成</span>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;padding-top:8px">
+            <button class="btn ghost" style="width:100%;height:32px">前往 Web UI 统一处理</button>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- 3. Dashboard 概览页（深色，380x270px 舒展版） -->
+    <div class="card-wrap" data-theme="dark">
+      <div class="card-title" style="color:#d1d5db">3. 服务概览（深色 · 380×270px 舒展排版）</div>
+      <div class="popup-v6-380">
+        <nav class="rail-380">
+          <button class="rail-btn active" title="概览"><span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span></button>
+          <button class="rail-btn" title="会话"><span data-dsh-icon="IconNewChatOutline16" data-size="16"></span><span class="dot-badge"></span></button>
+          <button class="rail-btn" title="设置"><span data-dsh-icon="IconSettingsOutline16" data-size="16"></span></button>
+          <div style="margin-top:auto"><span class="dot dot-running"></span></div>
+        </nav>
+        <main class="panel-380">
+          <div class="panel-header">
+            <div class="brand-wrap">
+              <span class="whale-swim"><span data-dsh-icon="FishLogo" data-size="18"></span></span>
+              <span style="font-size:14px;font-weight:600">Whalekeeper</span>
+              <span data-dsh-icon="BrandBadge" data-text="DSH WEB"></span>
+            </div>
+            <span class="brand-tag">3080</span>
+          </div>
+
+          <div class="statuscard">
+            <div class="sc-row1">
+              <span class="state-word">
+                <span class="dot green breathe"></span>
+                <span>运行中</span>
+              </span>
+              <span class="sc-health">健康</span>
+            </div>
+            <div class="sc-row2">已运行 1h20m · PID 14208 · node v24.19.0</div>
+          </div>
+
+          <button class="btn ghost" style="width:100%;height:34px;margin-bottom:8px">打开 DSH Web UI</button>
+
+          <div style="display:flex;gap:8px">
+            <button class="btn primary" style="height:32px" disabled><span data-dsh-icon="IconPlayOutline16" data-size="14"></span><span>启动</span></button>
+            <button class="btn danger" style="height:32px"><span data-dsh-icon="IconStopFill16" data-size="14"></span><span>停止</span></button>
+            <button class="btn outline" style="height:32px"><span data-dsh-icon="IconRefreshOutline16" data-size="14"></span><span>重启</span></button>
+          </div>
+
+          <footer class="foot">
+            <span class="hint">优雅停机已就绪</span>
+            <button class="link" type="button">查看日志</button>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <!-- 4. 首选项设置（深色，380x270px 舒展版） -->
+    <div class="card-wrap" data-theme="dark">
+      <div class="card-title" style="color:#d1d5db">4. 首选项设置（深色 · 380×270px 舒展排版）</div>
+      <div class="popup-v6-380">
+        <nav class="rail-380">
+          <button class="rail-btn" title="概览"><span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span></button>
+          <button class="rail-btn" title="会话"><span data-dsh-icon="IconNewChatOutline16" data-size="16"></span><span class="dot-badge"></span></button>
+          <button class="rail-btn active" title="设置"><span data-dsh-icon="IconSettingsOutline16" data-size="16"></span></button>
+          <div style="margin-top:auto"><span class="dot dot-running"></span></div>
+        </nav>
+        <main class="panel-380" style="overflow-y:auto;padding-right:8px">
+          <div class="panel-header">
+            <span>首选项设置</span>
+            <span style="font-size:11px;color:var(--dsw-alias-label-caption)">本地配置</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div class="s-section">
+              <div class="s-section-title"><span>服务运行环境</span></div>
+              <div class="s-field-row">
+                <span>服务端口</span>
+                <input class="s-field-input" type="number" value="3080" style="width:72px">
+              </div>
+              <div class="s-field-row">
+                <span>Profile 方案</span>
+                <input class="s-field-input" type="text" value="web" style="width:72px">
+              </div>
+            </div>
+
+            <div class="s-section">
+              <div class="s-section-title"><span>徽标与外观</span></div>
+              <div style="margin-top:2px">
+                <div class="theme-grid">
+                  <button class="theme-cube selected"><span data-dsh-icon="FishLogo" data-size="14"></span></button>
+                  <button class="theme-cube"><span data-dsh-icon="IconFollowsystemOutline16" data-size="14"></span></button>
+                  <button class="theme-cube"><span data-dsh-icon="IconLightOutline16" data-size="14"></span></button>
+                  <button class="theme-cube"><span data-dsh-icon="IconDarkOutline16" data-size="14"></span></button>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn primary" style="height:30px">保存设置</button>
+              <button class="btn outline" style="height:30px">取消</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+injectDSHAssets();
+</script>
+</body>
+</html>

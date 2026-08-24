@@ -77,7 +77,8 @@ try {
         'docs/upstream-feedback.md',
         'docs/publish.md',
         'CHROMEWEBSTORE.md',
-        'tools/icons/_user-whale-smooth.svg'  # 开发期备选素材（鲸鱼平滑剪影），不入发布版
+        'tools/icons/_user-whale-smooth.svg',            # 开发期备选素材（鲸鱼平滑剪影），不入发布版
+        'tools/ui-theme/_popup-icons-data.js'            # 开发期图标提取中间数据（下划线前缀=内部），不入发布版
     )) {
         Remove-Item (Join-Path $tempDir $f) -Force -ErrorAction SilentlyContinue
     }

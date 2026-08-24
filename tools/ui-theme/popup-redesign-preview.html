@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>popup 排版优化 · 方案预览</title>
+<!-- 长 SVG path（鲸鱼/齿轮）由脚本注入；本页为纯预览，不含扩展逻辑 -->
+<script src="_popup-icons-data.js"></script>
+<style>
+/* ================= 预览页外壳（不是 popup 样式） ================= */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #eef0f2;
+  color: #0f1115;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  padding: 28px 32px 60px;
+}
+.page-head { max-width: 1500px; margin: 0 auto 20px; }
+.page-head h1 { font-size: 20px; font-weight: 600; letter-spacing: .2px; }
+.page-head p { margin-top: 6px; font-size: 13px; color: #61666b; line-height: 1.6; max-width: 900px; }
+.page-head p b { color: #0f1115; }
+.compare {
+  display: grid; grid-template-columns: 92px 1fr 116px 180px 1fr;
+  gap: 8px 14px; margin-top: 16px; padding: 12px 14px;
+  background: #fff; border: 1px solid rgba(0,0,0,.06); border-radius: 12px;
+  font-size: 12px; max-width: 900px;
+}
+.compare .h { font-weight: 600; color: #61666b; }
+.compare .c-h { font-variant-numeric: tabular-nums; color: #4176e6; font-weight: 500; }
+.compare .c-v { color: #61666b; }
+
+/* 版本卡片横排 */
+.gallery { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; padding-bottom: 8px; }
+.ver {
+  flex: none; width: 356px; display: flex; flex-direction: column; gap: 8px;
+  background: #fff; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 14px;
+  box-shadow: 0 6px 24px rgba(15,17,21,.05);
+}
+.ver-head { display: flex; align-items: center; gap: 8px; }
+.ver-tag {
+  flex: none; font-size: 11px; font-weight: 600; color: #fff; background: #0f1115;
+  padding: 3px 8px; border-radius: 999px; letter-spacing: .3px;
+}
+.ver-head h3 { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; }
+.ver-h { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; color: #4176e6; font-weight: 600; }
+.ver-note { font-size: 12px; color: #61666b; line-height: 1.55; }
+.ver-note b { color: #0f1115; }
+.ver-controls { display: flex; gap: 6px; }
+.ver-controls button {
+  flex: 1; height: 26px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;
+  background: #f5f6f7; color: #61666b; font: inherit; font-size: 12px; cursor: pointer;
+}
+.ver-controls button.active { background: #fff; border-color: rgba(0,0,0,.14); color: #0f1115; font-weight: 500; }
+
+/* ================= popup 通用组件（与 popup.css 同源令牌） ================= */
+.frame-wrap { position: relative; }
+.frame {
+  position: relative; width: 320px; background: #fff; border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(15,17,21,.10), 0 0 1px rgba(15,17,21,.10);
+  overflow: hidden; transition: min-height .15s ease;
+}
+.frame.wide { width: 360px; }
+.pop { padding: 14px 12px 10px; }
+.hidden { display: none !important; }
+
+/* 应用栏 */
+.appbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.brand { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; }
+.brand .whale { width: 20px; height: 20px; flex: none; color: #0f1115; }
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+.brand-tag {
+  font-size: 11px; font-weight: 500; color: #adb2b8; background: #f5f6f7;
+  border: 1px solid rgba(0,0,0,.04); border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+}
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: none; border-radius: 50%; background: none; color: #61666b; cursor: pointer; flex: none;
+}
+.icon-btn:hover { color: #0f1115; background: rgba(38,49,72,.06); }
+.icon-btn svg { display: block; }
+
+/* 状态卡 */
+.statuscard {
+  background: #f5f6f7; border: 1px solid rgba(0,0,0,.04); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 10px;
+}
+.sc-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.state-word { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+.sc-port { font-size: 12px; font-weight: 500; color: #4176e6; font-variant-numeric: tabular-nums; }
+.sc-row2 { margin-top: 4px; font-size: 11.5px; color: #81858c; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 分层圆点（外圈 10% 光晕 + 内实心） */
+.dot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; color: #adb2b8; }
+.dot:before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; opacity: .1; }
+.dot:after { content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%; border-radius: 50%; background: currentColor; }
+.dot.green { color: #22c55e; }
+.dot.blue { color: #5686fe; }
+.dot.amber { color: #f59e0b; }
+.dot.red { color: #ec1313; }
+.dot.gray { color: #adb2b8; }
+
+/* 会话区 */
+.sessions { background: #f5f6f7; border: 1px solid rgba(0,0,0,.04); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+.sessions-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 12px; border: none;
+  background: none; cursor: pointer; color: #0f1115; font: inherit; font-size: 13px; font-weight: 500;
+}
+.sessions-head:hover { background: rgba(38,49,72,.06); }
+.sessions-count { font-size: 11.5px; font-weight: 400; color: #81858c; font-variant-numeric: tabular-nums; }
+.sessions-chevron { margin-left: auto; color: #81858c; }
+.sessions-list { padding: 0 8px 8px; }
+.session-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 4px; }
+.session-title { flex: 1 1 auto; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-state { flex: none; font-size: 11px; color: #81858c; }
+
+/* 按钮 */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 1; gap: 4px;
+  height: 32px; padding: 6px 12px; border: 1px solid transparent; border-radius: 12px;
+  background: none; color: #0f1115; font: inherit; font-size: 13px; line-height: 20px;
+  cursor: pointer; white-space: nowrap;
+}
+.btn.primary { background: #0f1115; color: #fff; font-weight: 500; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.outline { background: #fff; border-color: rgba(0,0,0,.1); }
+.btn.danger { background: #fff; border-color: rgba(0,0,0,.1); color: #ec1313; }
+.btn.ghost { background: #f5f6f7; border-color: rgba(0,0,0,.04); color: #4176e6; font-weight: 500; }
+.ops { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.oprow { display: flex; gap: 8px; }
+.oprow + .oprow { margin-top: 8px; }
+
+/* 底栏 */
+.foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border-top: 1px solid rgba(0,0,0,.04); padding-top: 8px; margin-top: 2px;
+}
+.foot .hint { flex: 1; min-width: 0; color: #adb2b8; font-size: 11px; }
+.link { flex: none; font-size: 12px; color: #4176e6; background: none; border: none; font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.link:hover { background: rgba(38,49,72,.06); }
+
+/* 会话摘要条（V2/V4） */
+.chips-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.chips-label { flex: none; font-size: 12px; color: #81858c; }
+.chips-group { display: flex; gap: 6px; flex: 1; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px;
+  border: 1px solid rgba(0,0,0,.08); border-radius: 999px; background: #fff;
+  font-size: 11.5px; color: #61666b; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+}
+.chip:hover { background: rgba(38,49,72,.06); }
+.chip .dot { width: 8px; height: 8px; }
+.chips-more {
+  flex: none; width: 28px; height: 28px; border: 1px solid rgba(0,0,0,.08); border-radius: 50%;
+  background: #fff; color: #61666b; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; cursor: pointer;
+}
+.chips-more:hover { background: rgba(38,49,72,.06); }
+
+/* 覆盖层（会话/设置：V2/V4 的抽屉；高度受限内滚动） */
+.overlay {
+  position: absolute; inset: 0; z-index: 5; background: #fff;
+  display: flex; flex-direction: column;
+}
+.overlay-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,.05); flex: none;
+}
+.overlay-title { flex: 1; font-size: 13px; font-weight: 600; }
+.overlay-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; }
+.btn-back {
+  flex: none; width: 26px; height: 26px; border: none; border-radius: 50%; background: none;
+  color: #61666b; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-back:hover { background: rgba(38,49,72,.06); color: #0f1115; }
+.btn-back svg { display: block; }
+
+/* 设置面板（视图内联 / 覆盖层共用） */
+.s-group { font-size: 11px; font-weight: 500; color: #81858c; margin: 12px 0 6px; letter-spacing: .3px; }
+.s-group:first-of-type { margin-top: 0; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.field:last-child { margin-bottom: 0; }
+.field-label { color: #61666b; font-size: 12px; }
+.field input[type="number"], .field input[type="text"] {
+  width: 110px; padding: 4px 6px; border: 1px solid rgba(0,0,0,.1); border-radius: 6px;
+  background: #fff; color: #0f1115; font: inherit; font-size: 12px;
+}
+.field input[type="checkbox"] { width: 16px; height: 16px; accent-color: #4176e6; }
+.field.label-top { flex-direction: column; align-items: stretch; justify-content: flex-start; }
+.theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; }
+.theme-cube {
+  display: inline-flex; align-items: center; justify-content: center; height: 32px;
+  border: 1px solid rgba(0,0,0,.1); border-radius: 16px; background: none; color: #0f1115; cursor: pointer;
+}
+.theme-cube.selected { background: #f5f6f7; border-color: #adb2b8; }
+.theme-cube svg { flex: none; }
+.colors-grid {
+  display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 8px 10px;
+  border: 1px solid rgba(0,0,0,.04); border-radius: 10px; background: #f5f6f7; margin-top: 4px;
+}
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-role-label { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; }
+.color-chip { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--chip, #5686fe); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35), 0 0 0 1px rgba(0,0,0,.1); }
+.color-swatches { flex: none; display: flex; gap: 4px; }
+.color-swatch {
+  width: 15px; height: 15px; border: 0; border-radius: 50%; background: var(--sw, #5686fe);
+  cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35), 0 0 0 1px rgba(0,0,0,.1);
+}
+.color-swatch.selected { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35), 0 0 0 2px #0f1115, 0 0 0 3px #f5f6f7; }
+.colors-caption { margin-top: 6px; font-size: 11px; line-height: 1.5; color: #81858c; }
+.link.small { font-size: 11px; padding: 2px 0; }
+.settings-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* 分段标签（V1） */
+.seg {
+  display: flex; gap: 3px; background: #f5f6f7; border: 1px solid rgba(0,0,0,.04);
+  border-radius: 10px; padding: 3px; margin-bottom: 10px;
+}
+.seg button {
+  flex: 1; height: 26px; border: none; border-radius: 8px; background: none; color: #61666b;
+  font: inherit; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.seg button.active { background: #fff; border: 1px solid rgba(0,0,0,.08); color: #0f1115; font-weight: 500; box-shadow: 0 2px 4px rgba(15,17,21,.05); }
+.seg .n { font-variant-numeric: tabular-nums; color: #81858c; font-weight: 400; }
+
+/* 双栏（V3） */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.col { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.col .statuscard { margin-bottom: 0; }
+.col .ops { margin-bottom: 0; }
+.col-sessions { background: #f5f6f7; border: 1px solid rgba(0,0,0,.04); border-radius: 12px; overflow: hidden; }
+.sessions-list.tight { padding: 0 6px 6px; }
+.tight .session-row { padding: 5px 4px; gap: 6px; }
+
+/* V4 命令式 */
+.cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  height: 44px; padding: 0 14px; border: none; border-radius: 12px; background: #0f1115; color: #fff;
+  font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; margin-bottom: 8px;
+}
+.cta .cta-l { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cta .cta-r { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; color: rgba(255,255,255,.85); font-variant-numeric: tabular-nums; }
+.cta .dot { color: #22c55e; }
+.mini-ops { display: flex; gap: 8px; margin-bottom: 10px; }
+.mini-ops .btn { height: 30px; font-size: 12px; padding: 4px 8px; }
+
+/* 高度上限指示（仅 V0 设置态用 HTML 顶注说明，不做视觉线） */
+.ver-pros { font-size: 11.5px; color: #61666b; line-height: 1.55; padding-left: 16px; }
+.ver-pros li { margin-bottom: 2px; }
+.ver-pros li b { color: #0f1115; }
+.footnote { margin-top: 24px; max-width: 900px; font-size: 12px; color: #61666b; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>popup 排版优化 · 方案预览（对照 + 4 版）</h1>
+  <p>
+    现状问题：popup 是<b>自上而下线性堆叠</b>——应用栏 → 状态卡 → 会话区（默认展开）→ 操作区 → 底栏，
+    再往后所有新信息（M9 会话、M10 颜色角色、将来的深链/统计…）都只能<b>再加一层</b>，popup 只会越来越长；
+    Chrome popup 高度上限约 600px，超出的部分变成页内滚动，体验断崖。
+    各版本的共同思路是 <b>把「纵向堆叠」改为「横向分组 / 视图切换 / 覆盖层」</b>，让高度有上限。
+    版本卡下的 ✓/△/✗ 标注为 ui-ux-pro-max 规则库审计结果（符合 / 部分 / 违反）。
+    点各版本顶部的状态按钮可以切换预览；高度数字为实测渲染高度。
+  </p>
+  <div class="compare">
+    <span class="h">版本</span><span class="h">核心思路</span><span class="h">默认高度</span><span class="h">会话长列表</span><span class="h">代价 / 偏好</span>
+    <span class="c-h">V0 现状</span><span class="c-v">线性堆叠，设置内联追加</span><span class="c-v" id="cmp-h0">—</span><span class="c-v">直接撑高 body，50 条即超限</span><span class="c-v">无改动；问题延续（✗ 无主 CTA · ✗ 设置全铺）</span>
+    <span class="c-h">V1 标签分视图</span><span class="c-v">概览 / 会话 / 设置三页签</span><span class="c-v" id="cmp-h1">—</span><span class="c-v">页内滚动，不再撑高概览</span><span class="c-v">多一次点击；沿用 dsh web 分页习惯（✓ 披露 · ✓ 激活态 · △ 无主 CTA）</span>
+    <span class="c-h">V2 合并头 + 抽屉</span><span class="c-v">状态并入顶栏；会话折叠为计数条</span><span class="c-v" id="cmp-h2">—</span><span class="c-v">点计数条开抽屉（限高滚动）</span><span class="c-v">状态细节少一行；抽屉多一次点击（✓ 披露 · ✓ chip 触达 · △ 无主 CTA）</span>
+    <span class="c-h">V3 双栏 360px</span><span class="c-v">左状态+操作，右会话；横向换纵向</span><span class="c-v" id="cmp-h3">—</span><span class="c-v">右侧列内滚动</span><span class="c-v">popup 加宽到 360；窄栏标题省略更多（✓ 形态契合 · ✓ 披露 · △ 无主 CTA）</span>
+    <span class="c-h">V4 命令式</span><span class="c-v">主操作即状态（打开 Web UI 大按钮）</span><span class="c-v" id="cmp-h4">—</span><span class="c-v">抽屉展开；计数条仅摘要</span><span class="c-v">三个次要操作退化为图标+短字；状态简化为按钮内一行（<b>✓ 唯一主 CTA · ✓ 披露 · ✓ SVG 图标 · ✓ 触达</b>）</span>
+  </div>
+</div>
+
+<div class="gallery">
+
+<!-- ================================================================ V0 现状 -->
+<section class="ver" id="ver-v0">
+  <div class="ver-head"><span class="ver-tag">V0</span><h3>现状（对照）</h3><span class="ver-h" id="h0">—</span></div>
+  <p class="ver-note">保持现有结构与视觉；对照用。注意「设置」打开后是<b>在底栏下面继续追加</b>，设置面板本身就有 400px+，与主视图叠加远超 600px 上限。</p>
+  <div class="ver-controls">
+    <button data-v="v0" data-target="v0-main" class="active">概览</button>
+    <button data-v="v0" data-target="v0-settings">设置（内联）</button>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame" id="frame-v0">
+      <div class="pop">
+        <div class="view active" id="v0-main">
+          <header class="appbar">
+            <div class="brand">
+              <svg class="whale" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="whale"></svg>
+              <span class="brand-name">DSH Manager</span>
+              <span class="brand-tag">dsh web</span>
+            </div>
+            <button class="icon-btn" title="刷新状态"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg></button>
+            <button class="icon-btn" title="设置"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" data-icon="gear"></svg></button>
+          </header>
+          <div class="statuscard">
+            <div class="sc-row1">
+              <span class="state-word"><span class="dot green"></span>运行中</span>
+              <span class="sc-port">端口 3080</span>
+            </div>
+            <div class="sc-row2">健康 · 已运行 76m43s · PID 53844 · node v24.19.0</div>
+          </div>
+          <div class="sessions">
+            <button class="sessions-head" type="button">
+              <span>会话</span><span class="sessions-count">3</span>
+              <svg class="sessions-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="sessions-list">
+              <div class="session-row"><span class="dot blue"></span><span class="session-title">设计令牌核对与视觉走查</span><span class="session-state">进行中</span></div>
+              <div class="session-row"><span class="dot amber"></span><span class="session-title">M9 会话深链方案草案</span><span class="session-state">待确认</span></div>
+              <div class="session-row"><span class="dot green"></span><span class="session-title">徽标计数同源修复验证</span><span class="session-state">已完成</span></div>
+            </div>
+          </div>
+          <div class="ops">
+            <div class="oprow">
+              <button class="btn primary">启动</button>
+              <button class="btn danger">停止</button>
+              <button class="btn outline">重启</button>
+            </div>
+            <div class="oprow">
+              <button class="btn ghost">打开 Web UI</button>
+            </div>
+          </div>
+          <footer class="foot"><span class="hint">优雅停机已启用（dsh-lifecycle）</span><button class="link">查看日志</button></footer>
+        </div>
+        <!-- V0 设置：真实结构=在 foot 之后内联追加，主视图不隐藏（撑高 frame） -->
+        <div class="hidden" id="v0-settings"><div class="settings-inline" data-settings></div></div>
+      </div>
+    </div>
+  </div>
+  <ul class="ver-pros">
+    <li><b>高度随内容线性增长</b>：3 条会话 ≈ 420px；50 条 ≈ 1300px 页内滚动</li>
+    <li>设置面板 400px+ 从底栏下方继续追加，主视图仍全部可见</li>
+    <li>✗ 违反「每条屏幕一个主 CTA」：启动/停止/重启/打开 UI 四枚同级 flex:1，无主次</li>
+    <li>✗ 违反「渐进披露」：设置一次全铺，不进抽屉/分视图</li>
+    <li><b>不改</b>：零风险，但下一次加功能（深链/统计）又要加一层</li>
+  </ul>
+</section>
+
+<!-- ================================================================ V1 标签分视图 -->
+<section class="ver" id="ver-v1">
+  <div class="ver-head"><span class="ver-tag">V1</span><h3>标签分视图</h3><span class="ver-h" id="h1">—</span></div>
+  <p class="ver-note">顶部三段标签<b>概览 / 会话 / 设置</b>（dsh web 同款分段组件）。每个视图高度独立、各自封顶：概览最常用、最短；会话与设置页内滚动<b>再也撑不到概览</b>。以后新功能进对应标签，高度不再叠加。</p>
+  <div class="ver-controls">
+    <button data-v="v1" data-target="v1-main" class="active">概览</button>
+    <button data-v="v1" data-target="v1-sessions">会话 3</button>
+    <button data-v="v1" data-target="v1-settings">设置</button>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame" id="frame-v1">
+      <div class="pop">
+        <header class="appbar">
+          <div class="brand">
+            <svg class="whale" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="whale"></svg>
+            <span class="brand-name">DSH Manager</span>
+          </div>
+          <button class="icon-btn" title="刷新状态"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg></button>
+        </header>
+        <div class="seg" role="tablist" aria-label="popup 视图">
+          <button class="active" data-seg="v1-main">概览</button>
+          <button data-seg="v1-sessions">会话 <span class="n">3</span></button>
+          <button data-seg="v1-settings">设置</button>
+        </div>
+        <div class="view active" id="v1-main">
+          <div class="statuscard">
+            <div class="sc-row1">
+              <span class="state-word"><span class="dot green"></span>运行中</span>
+              <span class="sc-port">端口 3080</span>
+            </div>
+            <div class="sc-row2">健康 · 已运行 76m43s · PID 53844</div>
+          </div>
+          <div class="ops">
+            <div class="oprow">
+              <button class="btn primary">启动</button>
+              <button class="btn danger">停止</button>
+              <button class="btn outline">重启</button>
+            </div>
+            <div class="oprow"><button class="btn ghost">打开 Web UI</button></div>
+          </div>
+        </div>
+        <div class="view hidden" id="v1-sessions">
+          <div class="sessions" style="border:none;background:none">
+            <div class="sessions-head" style="padding:0 0 8px"><span>会话</span><span class="sessions-count">3 · 进行中 1 · 待确认 1 · 已完成 1</span></div>
+            <div class="sessions-list" style="max-height:280px;overflow-y:auto" id="v1-sessions-list"></div>
+          </div>
+        </div>
+        <div class="view hidden" id="v1-settings" style="max-height:340px;overflow-y:auto"><div data-settings></div></div>
+        <footer class="foot"><span class="hint">优雅停机已启用（dsh-lifecycle）</span><button class="link">查看日志</button></footer>
+      </div>
+    </div>
+  </div>
+  <ul class="ver-pros">
+    <li><b>概览恒定 ≈ 短</b>；会话/设置再多也只是自己页内滚动</li>
+    <li>✓ 渐进披露：设置/会话进标签，不再内联追加</li>
+    <li>✓ 激活态：当前标签高亮（Active State 规则）</li>
+    <li>代价：切到会话/设置各多一次点击；概览不必再放完整会话</li>
+    <li>△ 仍无唯一主 CTA——如需合规，可在「打开 Web UI」标 primary；见 V4</li>
+    <li>可选进阶：设置标签右侧小齿轮快捷跳转、会话标签带状态计数徽章</li>
+  </ul>
+</section>
+
+<!-- ================================================================ V2 合并头 + 抽屉 -->
+<section class="ver" id="ver-v2">
+  <div class="ver-head"><span class="ver-tag">V2</span><h3>合并头 + 会话摘要抽屉</h3><span class="ver-h" id="h2">—</span></div>
+  <p class="ver-note">状态卡<b>并进应用栏</b>（鲸鱼 + 状态点 + 状态词一行，端口靠右），次级信息缩为一行小字；会话默认<b>折叠成三色计数条</b>，点开是覆盖层抽屉（限高内滚动）。设置同样走抽屉。主视图约省 70px。</p>
+  <div class="ver-controls">
+    <button data-v="v2" data-target="v2-main" class="active">概览</button>
+    <button data-v="v2" data-target="v2-drawer-sessions">会话抽屉</button>
+    <button data-v="v2" data-target="v2-drawer-settings">设置抽屉</button>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame" id="frame-v2">
+      <div class="pop" id="v2-main">
+        <header class="appbar" style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+            <svg class="whale" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="whale"></svg>
+            <span class="state-word" style="font-size:13px"><span class="dot green"></span>运行中</span>
+            <span class="sc-port" style="margin-left:auto">3080</span>
+          </div>
+          <button class="icon-btn" title="刷新状态"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg></button>
+          <button class="icon-btn" title="设置" data-open="v2-drawer-settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" data-icon="gear"></svg></button>
+        </header>
+        <div class="sc-row2" style="margin:0 0 10px;font-size:11.5px;color:#81858c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums">健康 · 已运行 76m43s · PID 53844 · node v24.19.0</div>
+        <div class="chips-row">
+          <span class="chips-label">会话</span>
+          <div class="chips-group">
+            <button class="chip"><span class="dot blue"></span>进行中 1</button>
+            <button class="chip"><span class="dot amber"></span>待确认 1</button>
+            <button class="chip"><span class="dot green"></span>完成 1</button>
+          </div>
+          <button class="chips-more" title="查看全部会话" data-open="v2-drawer-sessions">›</button>
+        </div>
+        <div class="ops">
+          <div class="oprow">
+            <button class="btn primary">启动</button>
+            <button class="btn danger">停止</button>
+            <button class="btn outline">重启</button>
+          </div>
+          <div class="oprow"><button class="btn ghost">打开 Web UI</button></div>
+        </div>
+        <footer class="foot"><span class="hint">优雅停机已启用（dsh-lifecycle）</span><button class="link">查看日志</button></footer>
+      </div>
+      <!-- 会话抽屉 -->
+      <div class="overlay hidden" id="v2-drawer-sessions">
+        <div class="overlay-head">
+          <button class="btn-back" title="返回" data-close="v2-drawer-sessions"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2.5 4 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="overlay-title">会话 · 3</span>
+          <span class="sessions-count">进行中 1 · 待确认 1 · 完成 1</span>
+        </div>
+        <div class="overlay-body" id="v2-drawer-list" style="padding:6px 8px"></div>
+      </div>
+      <!-- 设置抽屉 -->
+      <div class="overlay hidden" id="v2-drawer-settings">
+        <div class="overlay-head">
+          <button class="btn-back" title="返回" data-close="v2-drawer-settings"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2.5 4 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="overlay-title">设置</span>
+        </div>
+        <div class="overlay-body"><div data-settings></div></div>
+      </div>
+    </div>
+  </div>
+  <ul class="ver-pros">
+    <li><b>主视图 ≈ 247px</b>，比现状省 ~140px；状态一行尽收眼底</li>
+    <li>✓ 渐进披露：会话/设置走抽屉，主视图不膨胀</li>
+    <li>✓ 会话 50 条 → 抽屉限高滚动，主视图永远 3 枚计数（chip 已加大到 28px）</li>
+    <li>△ 仍无唯一主 CTA（四按钮同级）——可用「打开 Web UI」标主按钮补足，见 V4</li>
+    <li>代价：状态详情行被压缩（健康/uptime/PID 合并）；抽屉覆盖层限高后信息要滚动</li>
+    <li>与 V1 可叠加：要「主视图最短」选 V2，要「更明确的分类」选 V1</li>
+  </ul>
+</section>
+
+<!-- ================================================================ V3 双栏 360px -->
+<section class="ver" id="ver-v3">
+  <div class="ver-head"><span class="ver-tag">V3</span><h3>双栏 360px</h3><span class="ver-h" id="h3">—</span></div>
+  <p class="ver-note">popup 加宽到 360px（Chrome 允许 ≤800px），左列「状态 + 操作」，右列「会话」；纵向变横向。<b>会话不隐藏、不抽屉</b>，但被右列限高；操作按钮改紧凑高。宽 40px 换省 ~90px。</p>
+  <div class="ver-controls">
+    <button data-v="v3" data-target="v3-main" class="active">默认</button>
+    <button data-v="v3" data-target="v3-settings">设置（抽屉）</button>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame wide" id="frame-v3">
+      <div class="pop">
+        <header class="appbar">
+          <div class="brand">
+            <svg class="whale" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="whale"></svg>
+            <span class="brand-name">DSH Manager</span>
+          </div>
+          <button class="icon-btn" title="刷新状态"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg></button>
+          <button class="icon-btn" title="设置" data-open="v3-settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" data-icon="gear"></svg></button>
+        </header>
+        <div class="view active" id="v3-main">
+          <div class="grid2">
+            <div class="col">
+              <div class="statuscard" style="margin-bottom:0">
+                <div class="sc-row1">
+                  <span class="state-word"><span class="dot green"></span>运行中</span>
+                  <span class="sc-port">3080</span>
+                </div>
+                <div class="sc-row2">健康 · 已运行 76m43s · PID 53844</div>
+              </div>
+              <div class="ops">
+                <div class="oprow">
+                  <button class="btn primary">启动</button>
+                  <button class="btn danger">停止</button>
+                </div>
+                <div class="oprow"><button class="btn outline">重启</button></div>
+                <div class="oprow"><button class="btn ghost">打开 Web UI</button></div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="col-sessions">
+                <div class="sessions-head" style="padding:8px 10px"><span>会话</span><span class="sessions-count">3</span>
+                  <svg class="sessions-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="sessions-list tight" style="max-height:132px;overflow-y:auto" id="v3-sessions-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="foot"><span class="hint">优雅停机已启用（dsh-lifecycle）</span><button class="link">查看日志</button></footer>
+      </div>
+      <div class="overlay hidden" id="v3-settings">
+        <div class="overlay-head">
+          <button class="btn-back" title="返回" data-close="v3-settings"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2.5 4 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="overlay-title">设置</span>
+        </div>
+        <div class="overlay-body"><div data-settings></div></div>
+      </div>
+    </div>
+  </div>
+  <ul class="ver-pros">
+    <li><b>默认高度 ≈ 302px</b>；会话保持可见（无抽屉），只是限高滚动</li>
+    <li>✓ 产品形态契合：status 监控类（Data-Dense + Real-Time Monitoring）推荐双栏高密度</li>
+    <li>宽 360 让三按钮两行 + 打开 UI 各占一行也不挤；左右视觉平衡</li>
+    <li>代价：popup 加宽（需把 body width 改 360）；右列窄 → 会话标题省略更多；「重启」独自一行稍显空</li>
+    <li>适配：小屏/缩放下 360 仍安全（Chrome 上限 800）</li>
+  </ul>
+</section>
+
+<!-- ================================================================ V4 命令式 -->
+<section class="ver" id="ver-v4">
+  <div class="ver-head"><span class="ver-tag">V4</span><h3>命令式（主操作即状态）</h3><span class="ver-h" id="h4">—</span></div>
+  <p class="ver-note">最高频动作<b>打开 Web UI</b> 变成 44px 主按钮，状态直接显示在按钮里（绿点 + 运行中 + 端口）；启动/停止/重启退为一行紧凑按钮；会话三色计数条 + 抽屉；设置齿轮 + 抽屉。主打<b>最短默认视图</b>。</p>
+  <div class="ver-controls">
+    <button data-v="v4" data-target="v4-main" class="active">概览</button>
+    <button data-v="v4" data-target="v4-drawer-sessions">会话抽屉</button>
+    <button data-v="v4" data-target="v4-drawer-settings">设置抽屉</button>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame" id="frame-v4">
+      <div class="pop" id="v4-main">
+        <header class="appbar" style="margin-bottom:8px">
+          <div class="brand">
+            <svg class="whale" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="whale"></svg>
+            <span class="brand-name">DSH Manager</span>
+          </div>
+          <button class="icon-btn" title="刷新状态"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg></button>
+          <button class="icon-btn" title="设置" data-open="v4-drawer-settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" data-icon="gear"></svg></button>
+        </header>
+        <button class="cta">
+          <span class="cta-l"><span class="dot"></span>打开 Web UI</span>
+          <span class="cta-r">运行中 · 3080</span>
+        </button>
+        <div class="mini-ops">
+          <button class="btn outline"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.2 2.2v7.6a.5.5 0 0 0 .76.43l6.1-3.8a.5.5 0 0 0 0-.86l-6.1-3.8a.5.5 0 0 0-.76.43z" fill="currentColor"/></svg>启动</button>
+          <button class="btn outline"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.2" fill="currentColor"/></svg>停止</button>
+          <button class="btn outline"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 8 8 7.94 7.94 0 0 0-1.45-4.65l1.05-1.05a.5.5 0 0 0-.35-.85H11.5a.5.5 0 0 0-.5.5v3.75a.5.5 0 0 0 .85.35l1.12-1.12A6.97 6.97 0 0 1 13 8a6.5 6.5 0 1 1-1.9-4.6l2.55-1.05Z" fill="currentColor"/></svg>重启</button>
+        </div>
+        <div class="chips-row">
+          <span class="chips-label">会话</span>
+          <div class="chips-group">
+            <button class="chip"><span class="dot blue"></span>1</button>
+            <button class="chip"><span class="dot amber"></span>1</button>
+            <button class="chip"><span class="dot green"></span>1</button>
+          </div>
+          <button class="chips-more" title="查看全部会话" data-open="v4-drawer-sessions">›</button>
+        </div>
+        <footer class="foot"><span class="hint">优雅停机已启用（dsh-lifecycle）</span><button class="link">查看日志</button></footer>
+      </div>
+      <div class="overlay hidden" id="v4-drawer-sessions">
+        <div class="overlay-head">
+          <button class="btn-back" title="返回" data-close="v4-drawer-sessions"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2.5 4 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="overlay-title">会话 · 3</span>
+          <span class="sessions-count">进行中 1 · 待确认 1 · 完成 1</span>
+        </div>
+        <div class="overlay-body" style="padding:6px 8px" id="v4-drawer-list"></div>
+      </div>
+      <div class="overlay hidden" id="v4-drawer-settings">
+        <div class="overlay-head">
+          <button class="btn-back" title="返回" data-close="v4-drawer-settings"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2.5 4 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="overlay-title">设置</span>
+        </div>
+        <div class="overlay-body"><div data-settings></div></div>
+      </div>
+    </div>
+  </div>
+  <ul class="ver-pros">
+    <li><b>默认 ≈ 224px</b>，最小；一屏即全部高频操作</li>
+    <li>✓ 唯一主 CTA（「打开 Web UI」大按钮 + 状态一行），符合「每条屏幕一个主 CTA」</li>
+    <li>✓ 次要操作已从文本符号改为 SVG 图标（no-emoji-icons 规则）</li>
+    <li>✓ 会话计数 chip 高 28px，点击区已补足（v0 版 24px 偏小）</li>
+    <li>代价：状态「只读性」弱化（在按钮里），停止/重启等低频操作可发现性略降（图标+短字 12px，title/aria 补齐）；状态详情行需点开（状态卡抽屉或 tooltip）</li>
+    <li>适合「这个 popup 就是打开 Web UI 的」极简定位</li>
+  </ul>
+</section>
+
+</div>
+
+<p class="footnote">
+  说明：① 本页仅排版预览，组件样式与 popup.css 同源视觉令牌（浅色），深色主题随 CSS 变量自动适应，无需额外设计。<br>
+  ② 一旦选定方向，落地需要同步：<b>design.md §8.8</b> 排版规格、popup.html/css/js（veriy-cdp 94 断言的对应断言也要更新，重点是会话区交互与设置面板打开方式）。<br>
+  ③ V2/V4 的「覆盖层抽屉」在 MV3 popup 里是纯 DOM 层（position:absolute 于 popup body），无 CSP/沙箱问题；若担心 popup 关闭即失焦，可加轻量返回键。<br>
+  ④ 高度数字由页面脚本实测；V0 设置面板打开态 >600px 即超出 Chrome 弹层上限，真实体验为整页滚动。
+</p>
+
+<script>
+// ---------- 注入长 path ----------
+(function () {
+  var whale = typeof WHALE_PATH !== 'undefined' ? WHALE_PATH : '';
+  var gear = typeof GEAR_PATH !== 'undefined' ? GEAR_PATH : '';
+  document.querySelectorAll('svg[data-icon="whale"]').forEach(function (s) {
+    s.innerHTML = whale ? '<path d="' + whale + '" fill="currentColor"/>'
+      : '<circle cx="12" cy="12" r="9" fill="currentColor" opacity=".2"/><circle cx="12" cy="12" r="4" fill="currentColor"/>';
+  });
+  document.querySelectorAll('svg[data-icon="gear"]').forEach(function (s) {
+    s.innerHTML = gear ? '<g><path d="' + gear + '" fill="currentColor"/></g>'
+      : '<circle cx="8" cy="8" r="2.5" stroke="currentColor" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" fill="none" stroke-width="1.2"/>';
+  });
+})();
+
+// ---------- 会话数据（三态三色，与 M10.1 一致） ----------
+var SESSIONS = [
+  { s: 'blue', t: '设计令牌核对与视觉走查', l: '进行中' },
+  { s: 'amber', t: 'M9 会话深链方案草案（待你拍板）', l: '待确认' },
+  { s: 'green', t: '徽标计数同源修复验证', l: '已完成' },
+  { s: 'blue', t: 'popup 排版优化调研', l: '进行中' },
+  { s: 'green', t: 'install.ps1 幂等性补测', l: '已完成' }
+];
+function rowHTML(it, tight) {
+  return '<div class="session-row' + (tight ? '' : '') + '"><span class="dot ' + it.s + '"></span>'
+    + '<span class="session-title">' + it.t + '</span><span class="session-state">' + it.l + '</span></div>';
+}
+document.getElementById('v1-sessions-list').innerHTML = SESSIONS.map(function (x) { return rowHTML(x); }).join('');
+document.getElementById('v3-sessions-list').innerHTML = SESSIONS.slice(0, 4).map(function (x) { return rowHTML(x, true); }).join('');
+document.getElementById('v2-drawer-list').innerHTML = SESSIONS.slice(0, 4).map(function (x) { return rowHTML(x, true); }).join('');
+document.getElementById('v4-drawer-list').innerHTML = SESSIONS.slice(0, 4).map(function (x) { return rowHTML(x, true); }).join('');
+
+// ---------- 设置面板模板（与 popup.html 设置字段一致，颜色角色用白名单色板） ----------
+function settingsHTML() {
+  var swatches = ['#5686fe', '#f59e0b', '#8b5cf6', '#22c55e', '#ec1313', '#adb2b8'];
+  function sw(sel, c) { return '<button type="button" class="color-swatch' + (sel ? ' selected' : '') + '" style="--sw:' + c + '"></button>'; }
+  var roles = [
+    { n: '待确认', c: '#f59e0b', sel: 1 },
+    { n: '进行中', c: '#5686fe', sel: 0 },
+    { n: '完成', c: '#22c55e', sel: 0 }
+  ];
+  return ''
+    + '<div class="s-group">服务</div>'
+    + '<label class="field"><span class="field-label">端口（0 = 自动）</span><input type="number" min="0" max="65535" value="3080"></label>'
+    + '<label class="field"><span class="field-label">Profile</span><input type="text" value="web"></label>'
+    + '<label class="field"><span class="field-label">自动打开 Web UI</span><input type="checkbox" checked></label>'
+    + '<label class="field"><span class="field-label">徽标刷新间隔（秒）</span><input type="number" value="30"></label>'
+    + '<div class="s-group">界面</div>'
+    + '<label class="field"><span class="field-label">徽标提醒（回来看看）</span><input type="checkbox" checked></label>'
+    + '<label class="field"><span class="field-label">徽标：工作完成提醒（绿!）</span><input type="checkbox" checked></label>'
+    + '<div class="field label-top"><span class="field-label">外观</span>'
+    + '<div class="theme-grid">'
+    + '<button type="button" class="theme-cube selected" title="跟随 Web UI"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="' + (typeof WHALE_PATH !== 'undefined' ? WHALE_PATH : '') + '" fill="currentColor"/></svg></button>'
+    + '<button type="button" class="theme-cube" title="跟随系统"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><rect x="1.8" y="2.6" width="12.4" height="9.4" rx="1.6"/><path d="M3.7 14.5h8.6"/></svg></button>'
+    + '<button type="button" class="theme-cube" title="浅色"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg></button>'
+    + '<button type="button" class="theme-cube" title="深色"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M12.8 9.3A5.7 5.7 0 1 1 6.7 3.2a4.7 4.7 0 0 0 6.1 6.1z"/></svg></button>'
+    + '</div></div>'
+    + '<div class="field label-top"><span class="field-label">颜色角色</span>'
+    + '<div class="colors-grid">'
+    + roles.map(function (r) {
+      return '<div class="color-row"><span class="color-role-label">' + r.n + '</span><span class="color-chip" style="--chip:' + r.c + '"></span><div class="color-swatches">'
+        + swatches.map(function (c) { return sw(c === r.c && r.sel, c); }).join('') + '</div></div>';
+    }).join('')
+    + '</div><div class="colors-caption">颜色是辅助载体，语义由字符/状态词承载（error 红与字符语义锁定，不可改）。改「待确认 / 完成」为红色系会提示撞色。</div>'
+    + '<button type="button" class="link small">恢复默认色板</button></div>'
+    + '<div class="settings-actions"><button type="button" class="btn primary" style="height:32px">保存</button><button type="button" class="btn outline" style="height:32px">取消</button></div>';
+}
+document.querySelectorAll('[data-settings]').forEach(function (el) { el.innerHTML = settingsHTML(); });
+
+// ---------- 视图切换 + 高度实测 ----------
+function refreshHeight(id) {
+  var label = document.getElementById('h' + id.slice(1));
+  if (!label) return;
+  var frame = document.getElementById('frame-' + id);
+  if (id === 'v0') {
+    // 内联设置显示时 frame 被主视图+设置一起撑高，如实反映真实 popup 高度
+    label.textContent = Math.round(frame.offsetHeight) + 'px' +
+      (document.getElementById('v0-settings').offsetParent === null ? '' : '（设置内联）');
+    return;
+  }
+  // 视图 / 覆盖层均 absolute/流内：frame 高度 = 当前可见主视图高度
+  label.textContent = Math.round(frame.offsetHeight) + 'px';
+}
+function switchView(verId, targetId) {
+  var frame = document.getElementById('frame-' + verId);
+  // V0：设置是内联追加，主视图保持可见（真实结构），一起撑高 frame
+  if (verId === 'v0') {
+    document.getElementById('v0-settings').classList.toggle('hidden', targetId !== 'v0-settings');
+    var v0Act = document.getElementById('v0-main');
+    if (v0Act) v0Act.classList.remove('hidden');
+    document.querySelectorAll('#ver-v0 .ver-controls button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-target') === targetId);
+    });
+    refreshHeight('v0');
+    return;
+  }
+  // 视图（.view）
+  frame.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('hidden', v.id !== targetId); });
+  // 覆盖层（.overlay）默认全关，除非 target 是某覆盖层
+  frame.querySelectorAll('.overlay').forEach(function (o) { o.classList.add('hidden'); });
+  var target = document.getElementById(targetId);
+  if (target && target.classList.contains('overlay')) {
+    target.classList.remove('hidden');
+    // 主视图保持可见以撑高 frame（真实 app 中 popup 高=open 时刻高度）
+  }
+  if (target && target.classList.contains('view')) {
+    // 段落标签高亮（仅 v1）
+    if (verId === 'v1') {
+      frame.querySelectorAll('.seg button').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-seg') === targetId);
+      });
+    }
+  }
+  // 控件 active
+  document.querySelectorAll('#ver-' + verId + ' .ver-controls button').forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-target') === targetId);
+  });
+  // 设置类覆盖层露出时也把对应控件高亮
+  refreshHeight(verId);
+}
+document.querySelectorAll('.ver-controls button').forEach(function (b) {
+  b.addEventListener('click', function () { switchView(b.getAttribute('data-v'), b.getAttribute('data-target')); });
+});
+document.querySelectorAll('[data-open]').forEach(function (b) {
+  b.addEventListener('click', function () { switchView(b.getAttribute('data-v') || '', b.getAttribute('data-open')); });
+});
+document.querySelectorAll('[data-close]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var target = b.getAttribute('data-close');
+    var verId = target.split('-')[0];
+    document.getElementById(target).classList.add('hidden');
+    // 返回主视图
+    var main = { v2: 'v2-main', v3: 'v3-main', v4: 'v4-main' }[verId];
+    if (main) {
+      document.querySelectorAll('#frame-' + verId + ' .view').forEach(function (v) { v.classList.toggle('hidden', v.id !== main); });
+      document.querySelectorAll('#ver-' + verId + ' .ver-controls button').forEach(function (x) {
+        x.classList.toggle('active', x.getAttribute('data-target') === main);
+      });
+    }
+    refreshHeight(verId);
+  });
+});
+// V1 段落点击
+document.querySelectorAll('.seg button').forEach(function (b) {
+  b.addEventListener('click', function () { switchView('v1', b.getAttribute('data-seg')); });
+});
+// 初始化高度 + 对比表（V0 主视图 / 设置内联两个高度都记录；offsetHeight 同步可用）
+refreshHeight('v0'); refreshHeight('v1'); refreshHeight('v2'); refreshHeight('v3'); refreshHeight('v4');
+(function () {
+  var hMain = document.getElementById('h0').textContent;
+  switchView('v0', 'v0-settings'); // 同步量设置内联态
+  var hInline = document.getElementById('h0').textContent;
+  var sBtn = document.querySelector('#ver-v0 .ver-controls button[data-target="v0-settings"]');
+  sBtn.textContent = '设置（内联 ≈' + hInline.replace(/px.*$/, '') + 'px）';
+  switchView('v0', 'v0-main'); // 恢复主视图态
+  document.getElementById('cmp-h0').textContent = hMain;
+  document.getElementById('cmp-h1').textContent = document.getElementById('h1').textContent;
+  document.getElementById('cmp-h2').textContent = document.getElementById('h2').textContent;
+  document.getElementById('cmp-h3').textContent = document.getElementById('h3').textContent;
+  document.getElementById('cmp-h4').textContent = document.getElementById('h4').textContent;
+})();
+</script>
+</body>
+</html>

@@ -14,7 +14,14 @@ tools/visual-audit/shots/*.png
 tools/verify-ui/shots/*
 .smoke/
 .smoke-real/
+.e2e-m9/
 .review/
+
+# ---- UI 主题探索/截图产物（生成物，非源；预览 HTML 与提取脚本仍入库）----
+tools/ui-theme/*.png
+.agents/
+.playwright-cli/
+/preview-v*.html
 
 # ---- 扩展 ID / 安装副产物（可由 keygen.js / compute-id.js / install.ps1 现场生成）----
 extension/extension-key.json

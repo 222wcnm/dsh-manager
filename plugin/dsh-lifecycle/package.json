@@ -1,6 +1,6 @@
 {
   "name": "dsh-lifecycle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH lifecycle plugin: a loopback-fenced graceful-shutdown endpoint (POST /_lifecycle/shutdown) and a health endpoint (GET /_lifecycle/health), injected via the dsh webServer and appExit services.",
   "type": "module",
   "main": "index.js",

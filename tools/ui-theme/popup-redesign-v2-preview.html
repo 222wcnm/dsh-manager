@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSH Manager · Popup 空间架构升级（V6 / V7 原厂动效全量接入）</title>
+<!-- 引入 100% 提取自 dsh webui 官方 bundle 的原生资产库 -->
+<script src="dsh-assets-library.js"></script>
+<style>
+/* ============================================================================
+ * DSH Manager — Popup 空间架构升级 (V6 / V7 深度调优与全量动效接入)
+ * 设计规范：严格对齐 dsh Web UI 设计系统与原厂动效
+ * ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 静态色板（与 dsh 前端完全一致） ---- */
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-150: rgb(233, 236, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-100: rgb(228, 237, 253);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-amber-600: rgb(221, 134, 41);
+  --dsw-static-violet-500: rgb(139, 92, 246);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  /* ---- alias 语义层（浅色） ---- */
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-50);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
+  --dsw-alias-button-primary-fill: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+  
+  /* 会话三态语义（M10.1 定稿） */
+  --dsh-mgr-sem-working: var(--dsw-static-deepseek-450);
+  --dsh-mgr-sem-waiting: var(--dsw-static-amber-500);
+  --dsh-mgr-sem-completed: var(--dsw-static-green-500);
+  --dsh-mgr-sem-error: var(--dsw-static-red-600);
+
+  /* 缓动与时间（原厂规范） */
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration: 0.2s;
+  --ds-transition-duration-slow: 0.6s;
+
+  /* 页面预览外壳色 */
+  --page-bg: #eef1f5;
+  --page-card: #ffffff;
+  --page-text: #0f1115;
+  --page-muted: #61666b;
+  --page-border: rgba(0,0,0,.08);
+}
+
+/* 深色模式（完全对齐 dsh 官方 dsw-tokens-dark.css） */
+body[data-ds-dark-theme],
+[data-theme="dark-preview"] {
+  color-scheme: dark;
+
+  --dsw-alias-bg-base: rgb(22, 23, 26);
+  --dsw-alias-bg-layer-1: rgb(22, 23, 26);
+  --dsw-alias-bg-layer-2: rgb(30, 32, 37);
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
+  --dsw-alias-label-primary: rgb(241, 243, 245);
+  --dsw-alias-label-secondary: rgb(173, 178, 184);
+  --dsw-alias-label-tertiary: rgb(129, 133, 140);
+  --dsw-alias-label-caption: rgb(97, 102, 107);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.15);
+  --dsw-alias-button-primary-fill: rgb(241, 243, 245);
+  --dsw-alias-button-primary-hover: rgb(215, 219, 224);
+  --dsw-alias-label-primary-foreground: rgb(15, 17, 21);
+  --dsw-alias-bg-module-platform: rgb(30, 32, 37);
+  --dsw-alias-state-business-primary: rgb(86, 134, 254);
+
+  --page-bg: #101216;
+  --page-card: #181a20;
+  --page-text: #f1f3f5;
+  --page-muted: #9aa0a6;
+  --page-border: rgba(255,255,255,.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: var(--dsw-font-family);
+  padding: 24px 32px 80px;
+  transition: background .2s ease, color .2s ease;
+}
+
+/* ============================================================================
+   原厂动效体系（Keyframes）
+   ========================================================================== */
+
+/* 1. 小鲸鱼游弋动效 (原厂 pXSMma_hero-fish-swim) */
+@keyframes dsh-fish-swim {
+  0%, 100% { transform: translate(0) rotate(0); }
+  35% { transform: translate(-1.2px, -0.8px) rotate(-6deg); }
+  70% { transform: translate(0.8px, 0.4px) rotate(4deg); }
+}
+.whale-swim {
+  display: inline-flex;
+  cursor: pointer;
+  transform-origin: 50% 60%;
+}
+.whale-swim:hover {
+  animation: dsh-fish-swim var(--ds-transition-duration-slow) var(--ds-ease-in-out) infinite;
+}
+
+/* 2. 分层圆点 2.2s 同步呼吸 */
+@keyframes dsh-dot-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes dsh-halo-breathe {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.16; }
+}
+
+/* 3. 进行中流光扫光 (原厂 Md3f7G_dsh-turn-status-shimmer) */
+@keyframes dsh-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, var(--dsw-static-deepseek-450) 0%, #a5b4fc 50%, var(--dsw-static-deepseek-450) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 2.2s linear infinite;
+  font-weight: 500;
+}
+
+/* 4. 旋转动效 */
+@keyframes dsh-spin {
+  to { transform: rotate(360deg); }
+}
+.is-spinning {
+  animation: dsh-spin 0.8s linear infinite !important;
+}
+
+/* 5. 导轨面板切换平滑滑入 (原厂 hHd-Xa_rail-in) */
+@keyframes dsh-panel-in {
+  0% { opacity: 0; transform: translateX(6px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.panel-slide-in {
+  animation: dsh-panel-in 0.18s var(--ds-ease-in-out) forwards;
+}
+
+/* 顶部导航与控制 */
+.top-bar {
+  max-width: 1400px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-title h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+.tag-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-caption);
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.toggles {
+  display: flex;
+  gap: 8px;
+}
+.theme-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--page-border);
+  background: var(--page-card);
+  color: var(--page-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all .15s ease;
+}
+.theme-btn:hover { border-color: rgba(0,0,0,.2); }
+[data-theme="dark-preview"] .theme-btn:hover { border-color: rgba(255,255,255,.25); }
+
+/* 设计基线核验说明 */
+.callout {
+  max-width: 1400px;
+  margin: 0 auto 24px;
+  background: var(--page-card);
+  border: 1px solid var(--page-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--page-muted);
+}
+.callout h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--page-text);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.callout b { color: var(--page-text); }
+.callout code {
+  background: var(--dsw-alias-bg-module-platform);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+/* 核心方案对比容器（双主打：V6 vs V7） */
+.duo-stage {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .duo-stage { grid-template-columns: 1fr; }
+}
+
+.showcase-card {
+  background: var(--page-card);
+  border: 1px solid var(--page-border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.03);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ver-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #0f1115;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+[data-theme="dark-preview"] .ver-tag { background: #5686fe; color: #fff; }
+.card-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.height-meter {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-state-business-primary);
+  font-variant-numeric: tabular-nums;
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.scheme-desc {
+  font-size: 12.5px;
+  color: var(--page-muted);
+  line-height: 1.55;
+}
+.scheme-desc b { color: var(--page-text); }
+
+/* 控件切换栏 */
+.tab-controls {
+  display: flex;
+  gap: 6px;
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  padding: 3px;
+  border-radius: 9px;
+}
+.tab-controls button {
+  flex: 1;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--page-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.tab-controls button.active {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(15,17,21,.05);
+}
+
+/* 仿真框 */
+.sim-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: 12px;
+  border: 1px dashed var(--page-border);
+}
+
+/* ================= 真实 Popup 外壳 (完全按 popup.css 规格) ================= */
+.popup-frame {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15,17,21,.10), 0 0 1px rgba(15,17,21,.10);
+  overflow: hidden;
+  position: relative;
+  transition: min-height .15s ease;
+}
+.popup-frame.w320 { width: 320px; }
+.popup-frame.w360 { width: 360px; }
+
+.hidden { display: none !important; }
+
+/* 基础分层圆点（复刻 dsh Web UI 标准） */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsw-static-neutral-bluish-400);
+}
+.dot:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .1;
+}
+.dot:after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  right: 20%;
+  bottom: 20%;
+  left: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dot.green { color: var(--dsh-mgr-sem-completed); }
+.dot.blue { color: var(--dsh-mgr-sem-working); }
+.dot.amber { color: var(--dsh-mgr-sem-waiting); }
+.dot.red { color: var(--dsh-mgr-sem-error); }
+.dot.gray { color: var(--dsw-static-neutral-bluish-400); }
+
+/* 2.2s 全局同相位呼吸 */
+.dot.breathe:after {
+  animation: dsh-dot-breathe 2.2s var(--ds-ease-in-out) infinite;
+}
+.dot.breathe:before {
+  animation: dsh-halo-breathe 2.2s var(--ds-ease-in-out) infinite;
+}
+
+/* 按钮通用组件（带 0.96x 触觉按压反馈） */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 6px;
+  height: 32px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .1s ease, border-color .1s ease, transform .1s var(--ds-ease-in-out);
+}
+.btn:active:not(:disabled) { transform: scale(0.96); }
+.btn.primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-weight: 500;
+}
+.btn.primary:hover { background: var(--dsw-alias-button-primary-hover); }
+.btn.outline {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+}
+.btn.outline:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.btn.danger {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-state-error-primary);
+}
+.btn.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger); }
+.btn.ghost {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
+}
+.btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* 圆形图标按钮 (28px 规格) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background .1s ease, color .1s ease, transform .1s var(--ds-ease-in-out);
+}
+.icon-btn:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.icon-btn:active { transform: scale(0.90); }
+.icon-btn svg { display: block; }
+
+/* 状态卡（与 popup.css 严格同源） */
+.statuscard {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+.sc-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.state-word { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+.sc-port { font-size: 12px; font-weight: 500; color: var(--dsw-alias-state-business-primary); font-variant-numeric: tabular-nums; }
+.sc-row2 { margin-top: 3px; font-size: 11.5px; color: var(--dsw-alias-label-caption); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 会话行（只读摘要，带流光扫光与分层呼吸） */
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 4px;
+}
+.session-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-state {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* 底栏提示 */
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.foot .hint { flex: 1; min-width: 0; color: var(--dsw-alias-label-caption); font-size: 11px; }
+.link {
+  flex: none; font-size: 12px; color: var(--dsw-alias-state-business-primary);
+  background: none; border: none; font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+}
+.link:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* 设置面板内容（外观 + 徽标颜色） */
+.s-group { font-size: 11px; font-weight: 500; color: var(--dsw-alias-label-caption); margin: 10px 0 6px; display: flex; align-items: center; justify-content: space-between; }
+.s-group:first-of-type { margin-top: 0; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.field input[type="number"], .field input[type="text"] {
+  width: 90px; padding: 3px 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
+  background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 11.5px;
+}
+.field input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--dsw-alias-state-business-primary); }
+.theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 100%; margin-top: 4px; }
+.theme-cube {
+  display: inline-flex; align-items: center; justify-content: center; height: 28px;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: none; color: var(--dsw-alias-label-primary); cursor: pointer;
+  transition: all .12s var(--ds-ease-in-out);
+}
+.theme-cube:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.theme-cube.selected { background: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-static-neutral-bluish-400); }
+
+/* 升级版方案 2：纯净单层静态柔光晕（色盘保持安静不呼吸） */
+.colors-grid {
+  display: flex; flex-direction: column; gap: 7px; width: 100%; padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-module-platform); margin-top: 4px;
+}
+.color-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px;
+}
+.color-label-wrap {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.color-badge-preview {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 14px; height: 14px; padding: 0 3px; border-radius: 4px;
+  background: var(--badge-bg, #f59e0b); color: #ffffff;
+  font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  transition: background 0.15s ease;
+}
+.color-swatches { display: flex; gap: 6px; align-items: center; }
+.color-swatch-halo {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--sw);
+  transition: transform .15s var(--ds-ease-in-out);
+}
+.color-swatch-halo:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.color-swatch-halo:after {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.10);
+  transition: transform .15s ease;
+}
+.color-swatch-halo:hover { transform: scale(1.12); }
+.color-swatch-halo:hover:before { opacity: .16; }
+
+/* 选中态：纯净单层静态柔光晕（静止优雅，不闪烁呼吸） */
+.color-swatch-halo.selected {
+  transform: scale(1.08);
+}
+.color-swatch-halo.selected:before {
+  opacity: .28;
+}
+
+/* ============================================================================
+   V6 专有样式：侧边 Rail 导轨 (Master-Detail, 恒定 240px)
+   ========================================================================== */
+.v6-box {
+  display: flex;
+  height: 240px; /* 严格物理锁定 240px */
+}
+.v6-rail {
+  width: 44px;
+  flex: none;
+  background: var(--dsw-alias-bg-module-platform);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0 10px;
+  gap: 6px;
+}
+.v6-rail-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: background .12s ease, color .12s ease, transform .1s var(--ds-ease-in-out);
+}
+.v6-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.v6-rail-btn:active { transform: scale(0.92); }
+.v6-rail-btn.active {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+.v6-rail-btn .dot-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsh-mgr-sem-waiting);
+}
+
+.v6-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  transition: opacity .15s var(--ds-ease-in-out);
+}
+.v6-panel.hidden {
+  display: none;
+}
+/* 保证面板切换时不中断全局呼吸动画时钟 */
+.v6-box {
+  position: relative;
+}
+.v6-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.v6-ops-row {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.v6-ops-row .btn { height: 30px; font-size: 12px; }
+
+
+/* ============================================================================
+   V7 专有样式：模块微件流 (macOS 卡片手风琴)
+   ========================================================================== */
+.v7-inner {
+  padding: 12px 12px 10px;
+}
+.v7-appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  min-height: 28px;
+}
+.v7-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.v7-brand-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  color: var(--dsw-alias-label-primary);
+}
+.v7-brand-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-caption);
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.v7-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.v7-card {
+  background: var(--dsw-alias-bg-module-platform);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all .15s var(--ds-ease-in-out);
+}
+.v7-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.v7-card-head:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.v7-head-l { display: flex; align-items: center; gap: 6px; }
+.v7-head-r { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--dsw-alias-label-caption); font-variant-numeric: tabular-nums; }
+.v7-chevron { color: var(--dsw-alias-label-caption); transition: transform .18s var(--ds-ease-in-out); }
+.v7-card.open .v7-chevron { transform: rotate(180deg); }
+
+.v7-card-body {
+  padding: 4px 10px 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  font-size: 12px;
+}
+.v7-ops-grid {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.v7-ops-grid .btn { height: 28px; font-size: 12px; }
+
+/* 审计条目表 */
+.audit-list {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--page-muted);
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.audit-list li b { color: var(--page-text); }
+</style>
+</head>
+<body>
+
+<!-- 顶部导航栏 -->
+<div class="top-bar">
+  <div class="page-title">
+    <h1>Whalekeeper · Popup 空间架构升级</h1>
+    <span class="tag-badge">原生资产 & 交互动效全量接入</span>
+  </div>
+  <div class="toggles">
+    <button class="theme-btn" onclick="toggleGlobalTheme()">
+      <span data-dsh-icon="IconDarkOutline16" data-size="14"></span>
+      <span>切换暗色 / 浅色</span>
+    </button>
+  </div>
+</div>
+
+<!-- 设计基线核验说明 -->
+<div class="callout">
+  <h2>
+    <span class="whale-swim" title="悬停触发游弋动效">
+      <span data-dsh-icon="FishLogo" data-size="18" style="color:var(--dsw-alias-state-business-primary);display:inline-flex"></span>
+    </span>
+    <span>原生官方资产库 & 动态交互动效（100% 对齐原厂生态）</span>
+  </h2>
+  <p>
+    ① <b>官方原生图标资产</b>：全量接入 <code>FishLogo</code>（精准 <code>23.16:17.04</code> 比例）、<code>IconSettingsOutline16</code>、<code>IconRefreshOutline16</code>、主题外观等 12 组资产。<br>
+    ② <b>官方原厂动效加持</b>：鲸鱼悬停游动（<code>hero-fish-swim</code>）、面板切换淡入滑入（<code>rail-slide-in</code>）、进行中流光扫光（<code>dsh-turn-shimmer</code>）、2.2s 同相位呼吸与触觉按压反馈已全面生效。<br>
+    ③ <b>会话交互事实基线</b>：依据 <code>design.md §8.10</code>，会话区保持<b>纯只读状态感知</b>，导航交互统一收归「打开 Web UI」。
+  </p>
+</div>
+
+<!-- 方案双主打对比画廊 -->
+<div class="duo-stage">
+
+  <!-- ============================================================================
+       方案 V6：侧边 Rail 导轨 (Master-Detail, 恒定 240px)
+       ========================================================================== -->
+  <section class="showcase-card" id="card-v6">
+    <div class="card-header">
+      <div class="header-left">
+        <span class="ver-tag">V6</span>
+        <h3>侧边 Rail 导轨 (360px 视口锁定)</h3>
+      </div>
+      <span class="height-meter" id="h-meter-v6">240px 恒定</span>
+    </div>
+    <p class="scheme-desc">
+      VS Code / Arc 哲学。左侧 <b>44px 极窄导轨</b> + 右侧 <b>316px 独立视口</b>。
+      切换面板时高度<b>严格锁死在 240px（绝对零抖动）</b>；搭载原厂平滑滑入动效。
+    </p>
+
+    <div class="tab-controls">
+      <button class="active" id="v6-btn-tab-dash" onclick="switchV6('dash')">概览面板</button>
+      <button id="v6-btn-tab-sess" onclick="switchV6('sess')">会话面板 (3)</button>
+      <button id="v6-btn-tab-sett" onclick="switchV6('sett')">首选项设置</button>
+    </div>
+
+    <div class="sim-wrap">
+      <div class="popup-frame w360">
+        <div class="v6-box">
+          <!-- 左侧导轨 (44px) - 全原生图标 -->
+          <div class="v6-rail">
+            <button class="v6-rail-btn active" id="v6-r-dash" title="服务监控概览" onclick="switchV6('dash')">
+              <span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span>
+            </button>
+            <button class="v6-rail-btn" id="v6-r-sess" title="会话状态感知" onclick="switchV6('sess')">
+              <span data-dsh-icon="IconNewChatOutline16" data-size="16"></span>
+              <span class="dot-badge"></span>
+            </button>
+            <button class="v6-rail-btn" id="v6-r-sett" title="偏好设置" onclick="switchV6('sett')">
+              <span data-dsh-icon="IconSettingsOutline16" data-size="16"></span>
+            </button>
+            <div style="margin-top:auto" title="服务运行中">
+              <span class="dot green breathe"></span>
+            </div>
+          </div>
+
+          <!-- 右侧面板 1：服务概览 (方案四：Whalekeeper [DSH WEB]) -->
+          <div class="v6-panel panel-slide-in" id="v6-p-dash">
+            <div class="v6-panel-title">
+              <span style="display:flex;align-items:center;gap:6px">
+                <span class="whale-swim" title="悬停小鲸鱼游弋">
+                  <span data-dsh-icon="FishLogo" data-size="17" style="color:var(--dsw-alias-label-primary);display:inline-flex"></span>
+                </span>
+                <span style="font-weight:600;font-size:13.5px;letter-spacing:.2px">Whalekeeper</span>
+                <span data-dsh-icon="BrandBadge" data-text="DSH WEB"></span>
+              </span>
+              <span class="v7-brand-tag">3080</span>
+            </div>
+            <div class="statuscard" style="margin-bottom:6px">
+              <div class="sc-row1">
+                <span class="state-word"><span class="dot green breathe"></span>运行中</span>
+                <span style="font-size:11.5px;color:var(--dsw-alias-state-success-primary);font-weight:500">健康</span>
+              </div>
+              <div class="sc-row2">已运行 76m43s · PID 53844 · node v24.19.0</div>
+            </div>
+            <button class="btn ghost" style="width:100%;height:32px;margin-bottom:6px" onclick="triggerWebUIFeedback(this)">
+              <span>打开 DSH Web UI</span>
+            </button>
+            <div class="v6-ops-row" style="margin-top:0">
+              <button class="btn primary"><span data-dsh-icon="IconPlayOutline16" data-size="14"></span>启动</button>
+              <button class="btn danger"><span data-dsh-icon="IconStopFill16" data-size="14"></span>停止</button>
+              <button class="btn outline" onclick="triggerRefreshAnim(this)"><span data-dsh-icon="IconRefreshOutline16" data-size="14"></span>重启</button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:4px;font-size:10.5px;color:var(--dsw-alias-label-caption)">
+              <span>优雅停机已就绪</span>
+              <button class="btn link" style="font-size:10.5px;color:var(--dsw-alias-state-business-primary);padding:0;background:none;border:none;cursor:pointer;text-decoration:underline" onclick="alert('弹出日志查看窗口 (最新 500 行)')">查看日志</button>
+            </div>
+          </div>
+
+          <!-- 右侧面板 2：只读会话感知 (严格对齐 design.md §8.10 与原厂 StateMatrix 跑马灯点阵) -->
+          <div class="v6-panel hidden panel-slide-in" id="v6-p-sess">
+            <div class="v6-panel-title">
+              <span>会话状态感知</span>
+              <span style="font-size:11px;color:var(--dsw-alias-label-caption)">只读同步</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1">
+              <div class="session-row"><span class="dot amber breathe"></span><span class="session-title">M9 会话深链方案草案</span><span class="session-state">待确认</span></div>
+              <div class="session-row"><span data-dsh-icon="StateMatrix" data-size="10"></span><span class="session-title">M7 Popup 排版优化方案实现</span><span class="session-state shimmer-text">进行中</span></div>
+              <div class="session-row"><span class="dot green breathe"></span><span class="session-title">徽标计数同源修复验证</span><span class="session-state">已完成</span></div>
+            </div>
+            <div style="margin-top:auto;padding-top:8px">
+              <button class="btn ghost" style="width:100%;height:32px" onclick="triggerWebUIFeedback(this)"><span>前往 Web UI 统一处理</span></button>
+            </div>
+          </div>
+
+          <!-- 右侧面板 3：首选项设置 (单层柔光色盘 + 实时 Badge 变色联动) -->
+          <div class="v6-panel hidden panel-slide-in" id="v6-p-sett" style="overflow-y:auto;padding-right:6px">
+            <div class="v6-panel-title">
+              <span>首选项设置</span>
+            </div>
+            <div data-settings-slot></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="audit-list">
+      <li>✓ <b>原生动效加持</b>：左侧鲸鱼悬停浮沉游动，面板切换搭载 <code>rail-slide-in</code> 平滑进场</li>
+      <li>✓ <b>物理锁定 240px</b>：无论右侧内容多长，尺寸绝对恒定零抖动</li>
+      <li>✓ <b>零误导交互</b>：遵守 dsh 事实基线，进行中带有 <code>shimmer</code> 高光扫过</li>
+    </ul>
+  </section>
+
+
+  <!-- ============================================================================
+       方案 V7：模块微件流 (Modular Widget Hub) (macOS 控制中心手风琴)
+       ========================================================================== -->
+  <section class="showcase-card" id="card-v7">
+    <div class="card-header">
+      <div class="header-left">
+        <span class="ver-tag">V7</span>
+        <h3>macOS 模块微件流 (按需折叠)</h3>
+      </div>
+      <span class="height-meter" id="h-meter-v7">238px</span>
+    </div>
+    <p class="scheme-desc">
+      macOS 控制中心手风琴。<b>常驻紧凑应用头</b> + <b>3 个按需折叠 Card 微件</b>。
+      默认收拢仅 <b>238px</b>，点击标题卡平滑展开并带 Chevron 180° 旋转动效。
+    </p>
+
+    <div class="tab-controls">
+      <button class="active" id="v7-btn-def" onclick="resetV7()">默认折叠态</button>
+      <button id="v7-btn-ctrl" onclick="expandV7('ctrl')">展开服务控制</button>
+      <button id="v7-btn-sess" onclick="expandV7('sess')">展开会话 (3)</button>
+    </div>
+
+    <div class="sim-wrap">
+      <div class="popup-frame w320" id="frame-v7">
+        <div class="v7-inner">
+          <!-- ① 紧凑应用状态栏 (方案四：Whalekeeper [DSH WEB]) -->
+          <div class="v7-appbar">
+            <div class="v7-brand">
+              <span class="whale-swim" title="悬停小鲸鱼游弋">
+                <span data-dsh-icon="FishLogo" data-size="18" style="color:var(--dsw-alias-label-primary);display:inline-flex"></span>
+              </span>
+              <span class="v7-brand-name">Whalekeeper</span>
+              <span data-dsh-icon="BrandBadge" data-text="DSH WEB"></span>
+              <span class="state-word" style="font-size:12px;margin-left:2px"><span class="dot green breathe"></span>运行中</span>
+              <span class="v7-brand-tag">3080</span>
+            </div>
+            <div>
+              <button class="icon-btn" title="首选项设置" onclick="expandV7('pref')">
+                <span data-dsh-icon="IconSettingsOutline16" data-size="14"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ② 3 个折叠卡片微件 (排布顺序与图标 100% 遵循 V6) -->
+          <div class="v7-widgets">
+            <!-- Widget 1: 服务控制与运维 (遵循 V6 第 1 位，使用 IconPanelLeftOutline16) -->
+            <div class="v7-card" id="v7-c-ctrl">
+              <button class="v7-card-head" onclick="toggleV7('ctrl')">
+                <span class="v7-head-l">
+                  <span data-dsh-icon="IconPanelLeftOutline16" data-size="14"></span>
+                  <span>服务控制</span>
+                </span>
+                <span class="v7-head-r">
+                  <span>PID 53844 · 76m</span>
+                  <span data-dsh-icon="IconChevronDownOutline14" data-size="12" class="v7-chevron"></span>
+                </span>
+              </button>
+              <div class="v7-card-body hidden" id="v7-b-ctrl">
+                <div class="v7-ops-grid">
+                  <button class="btn primary"><span data-dsh-icon="IconPlayOutline16" data-size="13"></span>启动</button>
+                  <button class="btn danger"><span data-dsh-icon="IconStopFill16" data-size="13"></span>停止</button>
+                  <button class="btn outline" onclick="triggerRefreshAnim(this)"><span data-dsh-icon="IconRefreshOutline16" data-size="13"></span>重启</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Widget 2: 会话感知 (遵循 V6 第 2 位，使用 IconNewChatOutline16) -->
+            <div class="v7-card" id="v7-c-sess">
+              <button class="v7-card-head" onclick="toggleV7('sess')">
+                <span class="v7-head-l">
+                  <span data-dsh-icon="IconNewChatOutline16" data-size="14"></span>
+                  <span>会话感知</span>
+                </span>
+                <span class="v7-head-r">
+                  <span>进行中 1 · 待确认 1</span>
+                  <span data-dsh-icon="IconChevronDownOutline14" data-size="12" class="v7-chevron"></span>
+                </span>
+              </button>
+              <div class="v7-card-body hidden" id="v7-b-sess">
+                <div class="session-row"><span class="dot amber breathe"></span><span class="session-title">M9 会话深链方案草案</span><span class="session-state">待确认</span></div>
+                <div class="session-row"><span data-dsh-icon="StateMatrix" data-size="10"></span><span class="session-title">M7 Popup 排版优化方案实...</span><span class="session-state shimmer-text">进行中</span></div>
+                <div class="session-row"><span class="dot green breathe"></span><span class="session-title">徽标计数同源修复验证</span><span class="session-state">已完成</span></div>
+              </div>
+            </div>
+
+            <!-- Widget 3: 首选项与外观 (遵循 V6 第 3 位，使用 IconSettingsOutline16) -->
+            <div class="v7-card" id="v7-c-pref">
+              <button class="v7-card-head" onclick="toggleV7('pref')">
+                <span class="v7-head-l">
+                  <span data-dsh-icon="IconSettingsOutline16" data-size="14"></span>
+                  <span>首选项与色盘</span>
+                </span>
+                <span class="v7-head-r">
+                  <span>配置</span>
+                  <span data-dsh-icon="IconChevronDownOutline14" data-size="12" class="v7-chevron"></span>
+                </span>
+              </button>
+              <div class="v7-card-body hidden" id="v7-b-pref">
+                <div data-settings-slot></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ③ 主进入按钮 + 底栏 -->
+          <button class="btn ghost" style="width:100%;height:32px;margin-bottom:6px">打开 Web UI</button>
+          <footer class="foot">
+            <span class="hint">优雅停机已就绪</span>
+            <button class="link">查看日志</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+    <ul class="audit-list">
+      <li>✓ <b>原生动效加持</b>：手风琴 Chevron 180° 平滑回弹，顶栏刷新带 <code>spin</code> 旋转</li>
+      <li>✓ <b>保持 320px 经典窄宽</b>：默认高度 ~238px，手风琴按需展开</li>
+      <li>✓ <b>模块边界清晰</b>：运维/会话/设置各自独立 Card 解耦</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+// ---------- 设置面板标准组件生成 (按 popup.html 真实结构) ----------
+function buildSettingsHTML() {
+  var swatches = [
+    { c: '#5686fe', name: '蓝' },
+    { c: '#f59e0b', name: '琥珀' },
+    { c: '#8b5cf6', name: '紫' },
+    { c: '#22c55e', name: '绿' },
+    { c: '#ec1313', name: '红' },
+    { c: '#adb2b8', name: '灰' }
+  ];
+  var roles = [
+    { id: 'waiting', n: '待确认徽标', c: '#f59e0b', badgeCount: '1' },
+    { id: 'working', n: '进行中徽标', c: '#5686fe', badgeCount: '2' },
+    { id: 'completed', n: '已完成徽标', c: '#22c55e', badgeCount: '✓' }
+  ];
+  return ''
+    + '<div class="s-group"><span>服务配置</span></div>'
+    + '<div class="field"><span>端口（0=自动）</span><input type="number" value="3080"></div>'
+    + '<div class="field"><span>自动打开 Web UI</span><input type="checkbox" checked></div>'
+    + '<div class="s-group"><span>外观模式</span></div>'
+    + '<div class="theme-grid">'
+    + '  <button class="theme-cube selected" title="跟随 Web UI">' + renderDSHIcon('FishLogo', 14) + '</button>'
+    + '  <button class="theme-cube" title="跟随系统">' + renderDSHIcon('IconFollowsystemOutline16', 14) + '</button>'
+    + '  <button class="theme-cube" title="浅色">' + renderDSHIcon('IconLightOutline16', 14) + '</button>'
+    + '  <button class="theme-cube" title="深色">' + renderDSHIcon('IconDarkOutline16', 14) + '</button>'
+    + '</div>'
+    + '<div class="s-group"><span>扩展徽标与会话颜色</span><span style="font-size:10px;color:var(--dsw-alias-label-caption)">Badge & State</span></div>'
+    + '<div class="colors-grid">'
+    + roles.map(function(r){
+      return '<div class="color-row" id="color-row-' + r.id + '">'
+        + '<div class="color-label-wrap">'
+        + '  <span class="color-badge-preview" id="badge-prev-' + r.id + '" style="--badge-bg:' + r.c + '">' + r.badgeCount + '</span>'
+        + '  <span>' + r.n + '</span>'
+        + '</div>'
+        + '<div class="color-swatches">'
+        + swatches.map(function(s){
+          var isSel = s.c === r.c;
+          return '<button class="color-swatch-halo' + (isSel ? ' selected' : '') + '" style="--sw:' + s.c + '" title="' + s.name + '" onclick="selectBadgeColor(\'' + r.id + '\', \'' + s.c + '\', this)"></button>';
+        }).join('')
+        + '</div></div>';
+    }).join('')
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-top:8px"><button class="btn primary" style="height:28px;font-size:11.5px">保存</button><button class="btn outline" style="height:28px;font-size:11.5px">取消</button></div>';
+}
+
+function selectBadgeColor(roleId, color, btn) {
+  var row = btn.closest('.color-row');
+  if (row) {
+    row.querySelectorAll('.color-swatch-halo').forEach(function(el){ el.classList.remove('selected'); });
+    btn.classList.add('selected');
+    var badge = row.querySelector('.color-badge-preview');
+    if (badge) {
+      badge.style.setProperty('--badge-bg', color);
+    }
+  }
+}
+
+document.querySelectorAll('[data-settings-slot]').forEach(function(el){ el.innerHTML = buildSettingsHTML(); });
+
+// 执行官方资产注入
+injectDSHAssets();
+
+// ---------- 全局暗色主题切换 ----------
+var isDark = window.location.search.indexOf('dark=1') !== -1;
+function applyTheme() {
+  document.body.setAttribute('data-ds-dark-theme', isDark ? '' : null);
+  document.body.setAttribute('data-theme', isDark ? 'dark-preview' : '');
+  if (!isDark) document.body.removeAttribute('data-ds-dark-theme');
+}
+function toggleGlobalTheme() {
+  isDark = !isDark;
+  applyTheme();
+}
+if (isDark) applyTheme();
+
+// ---------- V6 逻辑 (带面板 slide-in 动效) ----------
+function switchV6(tab) {
+  ['dash', 'sess', 'sett'].forEach(function(t){
+    var r = document.getElementById('v6-r-' + t);
+    var p = document.getElementById('v6-p-' + t);
+    var tb = document.getElementById('v6-btn-tab-' + t);
+    if (r) r.classList.toggle('active', t === tab);
+    if (tb) tb.classList.toggle('active', t === tab);
+    if (p) {
+      p.classList.toggle('hidden', t !== tab);
+      if (t === tab) {
+        p.classList.remove('panel-slide-in');
+        void p.offsetWidth; // 触发重绘
+        p.classList.add('panel-slide-in');
+      }
+    }
+  });
+}
+
+// ---------- 刷新动画交互 ----------
+function triggerIconSpin(btn) {
+  var svg = btn.querySelector('svg');
+  if (svg) {
+    svg.classList.add('is-spinning');
+    setTimeout(function(){ svg.classList.remove('is-spinning'); }, 800);
+  }
+}
+function triggerRefreshAnim(btn) {
+  var svg = btn.querySelector('svg');
+  if (svg) {
+    svg.classList.add('is-spinning');
+    setTimeout(function(){ svg.classList.remove('is-spinning'); }, 800);
+  }
+}
+
+// ---------- V7 逻辑 ----------
+function toggleV7(which) {
+  var card = document.getElementById('v7-c-' + which);
+  var body = document.getElementById('v7-b-' + which);
+  if (card && body) {
+    var isOpen = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', isOpen);
+    card.classList.toggle('open', !isOpen);
+  }
+  updateV7Height();
+}
+function resetV7() {
+  ['sess', 'ctrl', 'pref'].forEach(function(t){
+    var c = document.getElementById('v7-c-' + t);
+    var b = document.getElementById('v7-b-' + t);
+    if (c) c.classList.remove('open');
+    if (b) b.classList.add('hidden');
+  });
+  document.getElementById('v7-btn-def').classList.add('active');
+  document.getElementById('v7-btn-sess').classList.remove('active');
+  document.getElementById('v7-btn-ctrl').classList.remove('active');
+  updateV7Height();
+}
+function expandV7(which) {
+  resetV7();
+  var card = document.getElementById('v7-c-' + which);
+  var body = document.getElementById('v7-b-' + which);
+  if (card) card.classList.add('open');
+  if (body) body.classList.remove('hidden');
+
+  document.getElementById('v7-btn-def').classList.remove('active');
+  var tb = document.getElementById('v7-btn-' + which);
+  if (tb) tb.classList.add('active');
+  updateV7Height();
+}
+
+function updateV7Height() {
+  var f = document.getElementById('frame-v7');
+  var m = document.getElementById('h-meter-v7');
+  if (f && m) {
+    m.textContent = Math.round(f.offsetHeight) + 'px';
+  }
+}
+/* 完整真实生产设置面板模板渲染 */
+function renderFullSettingsHTML() {
+  return `
+    <div class="settings-content" style="display:flex;flex-direction:column;gap:6px">
+      <div class="s-group-title" style="font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-top:2px">服务配置</div>
+      <div class="field-row" style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px">
+        <span class="field-label">端口 (0=自动)</span>
+        <input class="field-input" type="number" min="0" max="65535" value="3080" style="width:75px;height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:11.5px">
+      </div>
+      <div class="field-row" style="display:flex;flex-direction:column;gap:3px;font-size:11.5px">
+        <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+          <span class="field-label">运行环境 (Profile)</span>
+          <input class="field-input" type="text" value="web" spellcheck="false" style="width:75px;height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:11.5px">
+        </div>
+        <span style="font-size:10px;color:var(--dsw-alias-label-caption);line-height:1.3">默认 web，用于指定 dsh 启动配置方案，一般无需修改</span>
+      </div>
+      <div class="field-row check" style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;margin-top:2px">
+        <span class="field-label">自动打开 Web UI</span>
+        <input type="checkbox" checked>
+      </div>
+      <div class="field-row" style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px">
+        <span class="field-label">徽标刷新间隔 (秒)</span>
+        <input class="field-input" type="number" min="5" max="3600" value="30" style="width:75px;height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:11.5px">
+      </div>
+
+      <div class="s-group-title" style="font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-top:8px">徽标感知与提醒</div>
+      <div class="field-row check" style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px">
+        <span class="field-label">徽标提醒 (回来看看)</span>
+        <input type="checkbox" checked>
+      </div>
+      <div class="field-row check" style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px">
+        <span class="field-label">工作完成提醒 (绿色 ✓)</span>
+        <input type="checkbox" checked>
+      </div>
+
+      <div class="s-group-title" style="font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-top:8px">外观模式</div>
+      <div class="theme-grid">
+        <button class="theme-cube selected" title="跟随 Web UI"><span data-dsh-icon="FishLogo" data-size="14"></span></button>
+        <button class="theme-cube" title="跟随系统"><span data-dsh-icon="IconFollowsystemOutline16" data-size="14"></span></button>
+        <button class="theme-cube" title="浅色"><span data-dsh-icon="IconLightOutline16" data-size="14"></span></button>
+        <button class="theme-cube" title="深色"><span data-dsh-icon="IconDarkOutline16" data-size="14"></span></button>
+      </div>
+
+      <div class="s-group-title" style="font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);margin-top:8px;display:flex;justify-content:space-between">
+        <span>扩展徽标与会话颜色</span>
+        <span style="font-size:10.5px;color:var(--dsw-alias-label-caption)">Badge &amp; State</span>
+      </div>
+      <div class="colors-grid">
+        <div class="color-row">
+          <div class="color-label-wrap">
+            <span class="color-badge-preview" id="prev-badge-waiting" style="--badge-bg:#f59e0b">1</span>
+            <span>待确认徽标</span>
+          </div>
+          <div class="color-swatches" data-role="waiting">
+            <button class="color-swatch-halo" style="--sw:#5686fe" onclick="selectSwatchColor(this, 'waiting', '#5686fe')"></button>
+            <button class="color-swatch-halo selected" style="--sw:#f59e0b" onclick="selectSwatchColor(this, 'waiting', '#f59e0b')"></button>
+            <button class="color-swatch-halo" style="--sw:#8b5cf6" onclick="selectSwatchColor(this, 'waiting', '#8b5cf6')"></button>
+            <button class="color-swatch-halo" style="--sw:#22c55e" onclick="selectSwatchColor(this, 'waiting', '#22c55e')"></button>
+            <button class="color-swatch-halo" style="--sw:#ec1313" onclick="selectSwatchColor(this, 'waiting', '#ec1313')"></button>
+            <button class="color-swatch-halo" style="--sw:#9aa0a6" onclick="selectSwatchColor(this, 'waiting', '#9aa0a6')"></button>
+          </div>
+        </div>
+        <div class="color-row">
+          <div class="color-label-wrap">
+            <span class="color-badge-preview" id="prev-badge-working" style="--badge-bg:#5686fe">2</span>
+            <span>进行中徽标</span>
+          </div>
+          <div class="color-swatches" data-role="working">
+            <button class="color-swatch-halo selected" style="--sw:#5686fe" onclick="selectSwatchColor(this, 'working', '#5686fe')"></button>
+            <button class="color-swatch-halo" style="--sw:#f59e0b" onclick="selectSwatchColor(this, 'working', '#f59e0b')"></button>
+            <button class="color-swatch-halo" style="--sw:#8b5cf6" onclick="selectSwatchColor(this, 'working', '#8b5cf6')"></button>
+            <button class="color-swatch-halo" style="--sw:#22c55e" onclick="selectSwatchColor(this, 'working', '#22c55e')"></button>
+            <button class="color-swatch-halo" style="--sw:#ec1313" onclick="selectSwatchColor(this, 'working', '#ec1313')"></button>
+            <button class="color-swatch-halo" style="--sw:#9aa0a6" onclick="selectSwatchColor(this, 'working', '#9aa0a6')"></button>
+          </div>
+        </div>
+        <div class="color-row">
+          <div class="color-label-wrap">
+            <span class="color-badge-preview" id="prev-badge-completed" style="--badge-bg:#22c55e">✓</span>
+            <span>已完成徽标</span>
+          </div>
+          <div class="color-swatches" data-role="completed">
+            <button class="color-swatch-halo" style="--sw:#5686fe" onclick="selectSwatchColor(this, 'completed', '#5686fe')"></button>
+            <button class="color-swatch-halo" style="--sw:#f59e0b" onclick="selectSwatchColor(this, 'completed', '#f59e0b')"></button>
+            <button class="color-swatch-halo" style="--sw:#8b5cf6" onclick="selectSwatchColor(this, 'completed', '#8b5cf6')"></button>
+            <button class="color-swatch-halo selected" style="--sw:#22c55e" onclick="selectSwatchColor(this, 'completed', '#22c55e')"></button>
+            <button class="color-swatch-halo" style="--sw:#ec1313" onclick="selectSwatchColor(this, 'completed', '#ec1313')"></button>
+            <button class="color-swatch-halo" style="--sw:#9aa0a6" onclick="selectSwatchColor(this, 'completed', '#9aa0a6')"></button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:4px">
+        <button class="btn link" style="font-size:11px;padding:0;height:auto;color:var(--dsw-alias-state-business-primary);text-decoration:underline;background:none;border:none;cursor:pointer" onclick="resetColorSwatches()">恢复默认色板</button>
+      </div>
+
+      <div class="settings-footer" style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn primary" style="flex:1" onclick="saveSettingsFeedback(this)">保存</button>
+        <button class="btn outline" style="flex:1" onclick="cancelSettingsFeedback(this)">取消</button>
+      </div>
+    </div>
+  `;
+}
+
+// 自动填充所有设置槽位
+document.querySelectorAll('[data-settings-slot]').forEach(el => {
+  el.innerHTML = renderFullSettingsHTML();
+});
+
+// 检查 URL 参数自动切换
+window.addEventListener('DOMContentLoaded', () => {
+  injectDSHAssets();
+  if (window.location.search.indexOf('tab=sess') !== -1) {
+    switchV6('sess');
+    expandV7('sess');
+  } else if (window.location.search.indexOf('tab=sett') !== -1) {
+    switchV6('sett');
+    expandV7('pref');
+  }
+});
+setTimeout(updateV7Height, 150);
+</script>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>色盘选中态 (Selected) 视觉设计方案对比</title>
+<script src="dsh-assets-library.js"></script>
+<style>
+:root {
+  --bg: #f5f6f7;
+  --card: #ffffff;
+  --text: #0f1115;
+  --muted: #61666b;
+  --border: rgba(0,0,0,0.08);
+  --blue: #5686fe;
+  --amber: #f59e0b;
+  --green: #22c55e;
+  --platform-bg: rgb(245, 246, 247);
+}
+[data-theme="dark"] {
+  --bg: #16171a;
+  --card: #1e2025;
+  --text: #f1f3f5;
+  --muted: #9aa0a6;
+  --border: rgba(255,255,255,0.08);
+  --platform-bg: rgb(30, 32, 37);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 36px 40px;
+}
+.header { margin-bottom: 24px; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.header p { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.card h2 {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.badge-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(86,134,254,.1);
+  color: var(--blue);
+}
+.stage {
+  background: var(--platform-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.swatches { display: flex; gap: 8px; align-items: center; }
+
+/* 基础通用圆点 */
+.base-dot {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--sw);
+}
+.base-dot:after {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ================= 方案 1（原方案）：双层光晕（内光晕 + 外描边环） ================= */
+.opt1:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .14;
+}
+.opt1.selected:before {
+  opacity: .35;
+  box-shadow: 0 0 0 1.5px var(--platform-bg), 0 0 0 3px currentColor;
+}
+
+/* ================= 方案 2（推荐：纯净单层光晕，无外环） ================= */
+.opt2:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.opt2:hover:before { opacity: .16; }
+.opt2.selected:before {
+  opacity: .28;
+  transform: scale(1.15);
+}
+.opt2.selected:after {
+  transform: scale(1.05);
+}
+
+/* ================= 方案 3（经典干净单外环，无内光晕粘连） ================= */
+.opt3:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+}
+.opt3:hover:before { opacity: .12; }
+.opt3.selected {
+  box-shadow: 0 0 0 2px var(--platform-bg), 0 0 0 3.5px currentColor;
+}
+
+/* ================= 方案 4（中心微白核 / 极简白点确认） ================= */
+.opt4:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .12;
+}
+.opt4.selected:before { opacity: .24; }
+.opt4.selected:after {
+  box-shadow: inset 0 0 0 1.5px #ffffff;
+}
+
+.desc { font-size: 12px; color: var(--muted); line-height: 1.55; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>色盘选中态 (Selected) 视觉设计方案对比走查</h1>
+  <p>分析此前“两层光晕”的成因与 4 种优化方案走查</p>
+</div>
+
+<div class="grid">
+  <!-- 方案 1: 当前双层（原设计） -->
+  <div class="card">
+    <h2>
+      <span>方案 1: 当前双层重叠 (原设计)</span>
+      <span class="badge-tag" style="color:#ec1313;background:rgba(236,19,19,.1)">两层光晕</span>
+    </h2>
+    <div class="stage">
+      <div class="row">
+        <span>待确认徽标 [1]</span>
+        <div class="swatches">
+          <button class="base-dot opt1" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt1 selected" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt1" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+      <div class="row">
+        <span>进行中徽标 [2]</span>
+        <div class="swatches">
+          <button class="base-dot opt1 selected" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt1" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt1" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+    </div>
+    <p class="desc"><b>成因</b>：同时保留了内部 <code>35%</code> 半透明光晕与外部 <code>box-shadow</code> 实体聚焦线，导致视觉上产生了<b>内外两道光圈</b>，略显繁复。</p>
+  </div>
+
+  <!-- 方案 2: 纯净单层自然光晕 (推荐) -->
+  <div class="card">
+    <h2>
+      <span>方案 2: 纯净单层柔和光晕 (推荐)</span>
+      <span class="badge-tag">极致克制 / 原厂质感</span>
+    </h2>
+    <div class="stage">
+      <div class="row">
+        <span>待确认徽标 [1]</span>
+        <div class="swatches">
+          <button class="base-dot opt2" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt2 selected" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt2" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+      <div class="row">
+        <span>进行中徽标 [2]</span>
+        <div class="swatches">
+          <button class="base-dot opt2 selected" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt2" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt2" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+    </div>
+    <p class="desc"><b>特点</b>：彻底移除外部实体线圈。未选中态为纯圆点，选中态<b>仅呈现一层 28% 同色自然发光光晕</b>，与展台预览的呼吸圆点完全 100% 一致，极其通透纯净。</p>
+  </div>
+
+  <!-- 方案 3: 单外环聚焦 (经典系统风) -->
+  <div class="card">
+    <h2>
+      <span>方案 3: 经典清晰单外环</span>
+      <span class="badge-tag">清晰干脆</span>
+    </h2>
+    <div class="stage">
+      <div class="row">
+        <span>待确认徽标 [1]</span>
+        <div class="swatches">
+          <button class="base-dot opt3" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt3 selected" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt3" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+      <div class="row">
+        <span>进行中徽标 [2]</span>
+        <div class="swatches">
+          <button class="base-dot opt3 selected" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt3" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt3" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+    </div>
+    <p class="desc"><b>特点</b>：移除内部光晕，仅保留一道外层极细单聚焦环（间距 2px）。类似 Apple / macOS 系统原生的选色指示器，干脆利落。</p>
+  </div>
+
+  <!-- 方案 4: 微白内圈确认 (微质感) -->
+  <div class="card">
+    <h2>
+      <span>方案 4: 中心微白核 + 柔光晕</span>
+      <span class="badge-tag">高对比度</span>
+    </h2>
+    <div class="stage">
+      <div class="row">
+        <span>待确认徽标 [1]</span>
+        <div class="swatches">
+          <button class="base-dot opt4" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt4 selected" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt4" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+      <div class="row">
+        <span>进行中徽标 [2]</span>
+        <div class="swatches">
+          <button class="base-dot opt4 selected" style="--sw:var(--blue)"></button>
+          <button class="base-dot opt4" style="--sw:var(--amber)"></button>
+          <button class="base-dot opt4" style="--sw:var(--green)"></button>
+        </div>
+      </div>
+    </div>
+    <p class="desc"><b>特点</b>：外层单光晕保持不变，选中时实心核内嵌一道 1.5px 纯白环，指示感强且无靶心层叠感。</p>
+  </div>
+</div>
+
+</body>
+</html>

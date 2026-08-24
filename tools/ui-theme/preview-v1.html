@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+DSH Manager · 会话状态感知设计走查 (Version 1: 原生轻量流 · 原地倒计时与已读微交互)
+================================================================================
+【新增：原地倒计时读秒撤回 (In-place Countdown & Undo)】
+用户点击「已读」后，完全不弹出底部 Toast 胶囊，直接在该行原地展开「已读 · 撤销 3s」倒计时微药丸：
+- 标题微淡化（呈现就绪移出态）；
+- 右侧原地显示「已读」与高亮「撤销 (3s)」读秒徽标；
+- 倒计时每秒递减；3秒结束若未撤销，会话平滑滑走并移出；
+- 倒计时内随时点击「撤销」，立即丝滑复原！
+顶部控制栏支持在【⏱️ 原地倒计时读秒 (推荐)】与【💬 底部 Toast 胶囊】之间实时切换对比！
+================================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whalekeeper · 会话状态感知设计走查（V1 原生轻量流）</title>
+<script src="dsh-assets-library.js"></script>
+<style>
+:root {
+  color-scheme: light;
+
+  /* ---- 静态色板 ---- */
+  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
+  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
+  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
+  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
+  --dsw-static-neutral-bluish-150: rgb(233, 236, 242);
+  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
+  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
+  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
+  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
+  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
+  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
+  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
+  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --dsw-static-deepseek-100: rgb(228, 237, 253);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-amber-600: rgb(221, 134, 41);
+  --dsw-static-violet-500: rgb(139, 92, 246);
+  --dsw-static-red-50: rgb(254, 242, 242);
+  --dsw-static-red-400: rgb(242, 90, 90);
+  --dsw-static-red-600: rgb(236, 19, 19);
+
+  /* ---- alias 语义层（浅色） ---- */
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-50);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.14);
+  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
+  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);
+  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
+  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
+  --dsw-alias-button-primary-fill: var(--dsw-static-neutral-bluish-1000);
+  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
+  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
+  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
+  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
+  
+  /* 会话语义色 */
+  --dsh-mgr-sem-working: var(--dsw-static-deepseek-450);
+  --dsh-mgr-sem-waiting: var(--dsw-static-amber-500);
+  --dsh-mgr-sem-completed: var(--dsw-static-green-500);
+  --dsh-mgr-sem-stopped: var(--dsw-static-green-500);
+  --dsh-mgr-sem-error: var(--dsw-static-red-600);
+
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 走查外壳色 */
+  --page-bg: #eef1f5;
+  --page-card: #ffffff;
+  --page-text: #0f1115;
+  --page-muted: #61666b;
+  --page-border: rgba(0,0,0,.08);
+}
+
+/* 深色模式 */
+body[data-ds-dark-theme],
+[data-theme="dark-preview"] {
+  color-scheme: dark;
+
+  --dsw-alias-bg-base: rgb(22, 23, 26);
+  --dsw-alias-bg-layer-1: rgb(22, 23, 26);
+  --dsw-alias-bg-layer-2: rgb(30, 32, 37);
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.18);
+  --dsw-alias-label-primary: rgb(241, 243, 245);
+  --dsw-alias-label-secondary: rgb(173, 178, 184);
+  --dsw-alias-label-tertiary: rgb(129, 133, 140);
+  --dsw-alias-label-caption: rgb(97, 102, 107);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.15);
+  --dsw-alias-button-primary-fill: rgb(241, 243, 245);
+  --dsw-alias-button-primary-hover: rgb(215, 219, 224);
+  --dsw-alias-label-primary-foreground: rgb(15, 17, 21);
+  --dsw-alias-bg-module-platform: rgb(30, 32, 37);
+  --dsw-alias-state-business-primary: rgb(86, 134, 254);
+
+  --page-bg: #101216;
+  --page-card: #181a20;
+  --page-text: #f1f3f5;
+  --page-muted: #9aa0a6;
+  --page-border: rgba(255,255,255,.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: var(--dsw-font-family);
+  padding: 24px 32px 80px;
+  transition: background .2s ease, color .2s ease;
+}
+
+/* 动效 */
+@keyframes dsh-dot-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes dsh-halo-breathe {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.16; }
+}
+@keyframes dsh-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, var(--dsw-static-deepseek-450) 0%, #a5b4fc 50%, var(--dsw-static-deepseek-450) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 2.2s linear infinite;
+  font-weight: 500;
+}
+@keyframes dsh-panel-in {
+  0% { opacity: 0; transform: translateX(4px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.panel-slide-in { animation: dsh-panel-in 0.18s var(--ds-ease-in-out) forwards; }
+
+/* 顶部导航与控制器 */
+.top-bar {
+  max-width: 860px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-title { display: flex; align-items: center; gap: 10px; }
+.page-title h1 { font-size: 18px; font-weight: 600; }
+.tag-badge {
+  font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-business-primary);
+  background: rgba(86, 134, 254, 0.1); border-radius: 999px; padding: 2px 8px;
+}
+.toggles { display: flex; gap: 8px; }
+.theme-btn {
+  height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--page-border);
+  background: var(--page-card); color: var(--page-text); font-size: 12px; font-weight: 500; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.theme-btn:hover { border-color: rgba(0,0,0,.2); }
+
+/* 说明卡 */
+.callout {
+  max-width: 860px;
+  margin: 0 auto 20px;
+  background: var(--page-card);
+  border: 1px solid var(--page-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--page-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.callout h2 { font-size: 14px; font-weight: 600; color: var(--page-text); display: flex; align-items: center; gap: 6px; }
+
+/* 控制器组合条 */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--dsw-alias-bg-module-platform);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.switch-row span.label { font-weight: 600; color: var(--dsw-alias-label-primary); min-width: 90px; }
+.style-pill-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.style-pill-btn.active {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  border-color: var(--dsw-alias-border-l2);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.single-stage { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.showcase-card {
+  width: 100%; max-width: 520px; background: var(--page-card); border: 1px solid var(--page-border);
+  border-radius: 16px; padding: 18px; box-shadow: 0 6px 20px rgba(0,0,0,.03); display: flex; flex-direction: column; gap: 14px;
+}
+.card-header { display: flex; align-items: center; justify-content: space-between; }
+.header-left { display: flex; align-items: center; gap: 8px; }
+.ver-tag { font-size: 11px; font-weight: 600; color: #fff; background: #0f1115; padding: 2px 7px; border-radius: 6px; }
+[data-theme="dark-preview"] .ver-tag { background: #5686fe; }
+.height-meter {
+  font-size: 12px; font-weight: 600; color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); padding: 2px 8px; border-radius: 6px;
+}
+
+.tab-controls {
+  display: flex; gap: 6px; background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); padding: 3px; border-radius: 9px;
+}
+.tab-controls button {
+  flex: 1; height: 26px; border: none; background: none; color: var(--page-muted); font: inherit; font-size: 12px; font-weight: 500; border-radius: 6px; cursor: pointer;
+}
+.tab-controls button.active {
+  background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-weight: 600; box-shadow: 0 2px 4px rgba(15,17,21,.05);
+}
+
+.sim-wrap { display: flex; justify-content: center; padding: 16px 0; background: var(--dsw-alias-bg-module-platform); border-radius: 12px; border: 1px dashed var(--page-border); }
+
+/* ================= 真实 Popup 视口 ================= */
+.popup-frame.w360 { width: 360px; height: 270px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); border-radius: 14px; box-shadow: 0 12px 32px rgba(15,17,21,.10); overflow: hidden; position: relative; }
+.v6-box { display: flex; width: 360px; height: 270px; }
+
+.v6-rail {
+  width: 44px; flex: none; background: var(--dsw-alias-bg-module-platform); border-right: 1px solid var(--dsw-alias-border-l1);
+  display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 8px;
+}
+.v6-rail-btn {
+  width: 34px; height: 34px; border: none; border-radius: 8px; background: none; color: var(--dsw-alias-label-tertiary);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; position: relative;
+}
+.v6-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.v6-rail-btn.active { background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-label-primary); }
+.v6-rail-btn .dot-badge { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--dsh-mgr-sem-waiting); }
+
+.v6-panel {
+  flex: 1 1 auto; min-width: 0; padding: 12px 14px 10px; display: flex; flex-direction: column; height: 270px; overflow-y: auto;
+}
+.v6-panel.hidden { display: none !important; }
+.v6-panel-title {
+  font-size: 13.5px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex: none;
+}
+.sessions-count-pill {
+  font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-business-primary);
+  background: rgba(86, 134, 254, 0.1); border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums;
+}
+
+.dot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; color: var(--dsw-static-neutral-bluish-400); }
+.dot:before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; opacity: .1; }
+.dot:after { content: ""; position: absolute; top: 20%; right: 20%; bottom: 20%; left: 20%; border-radius: 50%; background: currentColor; }
+.dot.green { color: var(--dsh-mgr-sem-completed); }
+.dot.amber { color: var(--dsh-mgr-sem-waiting); }
+.dot.breathe:after { animation: dsh-dot-breathe 2.2s var(--ds-ease-in-out) infinite; }
+.dot.breathe:before { animation: dsh-halo-breathe 2.2s var(--ds-ease-in-out) infinite; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 1; gap: 6px;
+  height: 32px; padding: 4px 12px; border: 1px solid transparent; border-radius: 8px; background: none;
+  font-family: var(--dsw-font-family); font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all .1s ease;
+}
+.btn:active:not(:disabled) { transform: scale(0.96); }
+.btn.ghost { background: var(--dsw-alias-bg-module-platform); border: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-state-business-primary); font-weight: 500; }
+.btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* 会话列表 */
+.sessions-container {
+  display: flex; flex-direction: column; gap: 1px; overflow-y: auto; flex: 1; padding-right: 2px;
+  scrollbar-width: thin; scrollbar-color: var(--dsw-alias-border-l2) transparent;
+}
+.sessions-container::-webkit-scrollbar { width: 4px; }
+.sessions-container::-webkit-scrollbar-thumb { background: var(--dsw-alias-border-l2); border-radius: 4px; }
+
+.session-unit { display: flex; flex-direction: column; transition: all 0.18s var(--ds-ease-in-out); }
+.session-unit.removing { opacity: 0; transform: translateX(20px); max-height: 0; overflow: hidden; margin: 0; padding: 0; }
+
+.session-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0;
+  padding: 5px 4px; border-radius: 6px; background: transparent; cursor: default; transition: background .12s ease;
+}
+.session-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.session-title {
+  flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--dsw-alias-label-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35;
+}
+.session-state {
+  flex: none; font-size: 11.5px; color: var(--dsw-alias-label-caption); font-weight: 400;
+}
+
+/* ============================================================================
+ * 原地倒计时微交互 (In-place Countdown Pill)
+ * ========================================================================== */
+.session-unit.is-pending-undo .session-row {
+  background: var(--dsw-alias-bg-module-platform);
+}
+.session-unit.is-pending-undo .session-title {
+  color: var(--dsw-alias-label-caption);
+  opacity: 0.55;
+}
+.session-unit.is-pending-undo .dot {
+  opacity: 0.35;
+}
+
+.inline-undo-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  flex: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  animation: dsh-panel-in 0.14s ease forwards;
+}
+.inline-undo-btn {
+  background: none;
+  border: none;
+  color: var(--dsw-static-deepseek-450);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: color 0.1s ease;
+}
+.inline-undo-btn:hover {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+.countdown-badge {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  background: rgba(86, 134, 254, 0.12);
+  color: var(--dsw-static-deepseek-450);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* ============================================================================
+ * 三种「已读」微交互样式
+ * ========================================================================== */
+
+/* --- 样式 A（默认）：中性幽灵微胶囊 (Neutral Ghost Chip) --- */
+body[data-read-style="ghost"] .btn-mark-read {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+body[data-read-style="ghost"] .btn-mark-read svg { width: 9px; height: 9px; stroke: currentColor; }
+body[data-read-style="ghost"] .btn-mark-read:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l3);
+}
+body[data-read-style="ghost"] .session-row.can-read:not(.is-pending):hover .session-state { display: none; }
+body[data-read-style="ghost"] .session-row.can-read:not(.is-pending):hover .btn-mark-read { display: inline-flex; }
+
+/* --- 样式 B：纯净文本渐隐变形 (Text Morphing) --- */
+body[data-read-style="text"] .btn-mark-read {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+body[data-read-style="text"] .btn-mark-read:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  text-decoration: underline;
+}
+body[data-read-style="text"] .session-row.can-read:not(.is-pending):hover .session-state { display: none; }
+body[data-read-style="text"] .session-row.can-read:not(.is-pending):hover .btn-mark-read { display: inline-flex; }
+
+/* --- 样式 C：独立微型小勾图标 (Action Icon Button) --- */
+body[data-read-style="icon"] .btn-mark-read {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+body[data-read-style="icon"] .btn-mark-read svg { width: 11px; height: 11px; stroke: currentColor; }
+body[data-read-style="icon"] .btn-mark-read:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l1);
+}
+body[data-read-style="icon"] .session-row.can-read:not(.is-pending):hover .session-state { display: inline-block; }
+body[data-read-style="icon"] .session-row.can-read:not(.is-pending):hover .btn-mark-read { display: inline-flex; }
+
+/* 子代理分支 (导轨隔离式架构：树形分支线保留在透明槽，与父/子胶囊悬停皆零重叠) */
+.subagent-branch-wrap {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin: 1px 0 3px 0;
+  padding: 0;
+}
+.subagent-leaf-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding: 1px 0;
+  min-height: 22px;
+}
+
+/* 树形分支线：精准锚定在父会话圆点中心轴线 (x=9px)，始于父行下方，绝不刺入父行胶囊 */
+.subagent-leaf-row::before {
+  content: "";
+  position: absolute;
+  left: 8.5px;
+  top: 0;
+  bottom: 50%;
+  width: 9px;
+  border-left: 1px solid var(--dsw-alias-border-l3);
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+  border-bottom-left-radius: 3.5px;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+.subagent-leaf-row:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 8.5px;
+  top: 50%;
+  bottom: 0;
+  border-left: 1px solid var(--dsw-alias-border-l3);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 悬停胶囊：从 x=17.5px 开始包裹右侧内容，与树干彻底解耦 */
+.subagent-leaf-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  margin-left: 17.5px;
+  padding: 2.5px 6px;
+  border-radius: 5px;
+  background: transparent;
+  transition: background 0.12s ease;
+  cursor: default;
+}
+.subagent-leaf-content:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.subagent-title {
+  flex: 1; font-size: 11.5px; color: var(--dsw-alias-label-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Toast 极简浮层通知 (单行胶囊架构，解决折行与竖裂问题) */
+.toast {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 11.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+  pointer-events: auto;
+  transition: opacity 0.18s var(--ds-ease-in-out), transform 0.18s var(--ds-ease-in-out);
+}
+.toast-hidden {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  pointer-events: none;
+}
+.toast-text {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toast-undo-btn {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--dsw-static-deepseek-450);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  white-space: nowrap;
+  transition: opacity 0.12s ease;
+}
+.toast-undo-btn:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+</style>
+</head>
+<body data-read-style="ghost">
+
+  <!-- 顶部导航与全局控制器 -->
+  <header class="top-bar">
+    <div class="page-title">
+      <h1>Whalekeeper · 会话状态感知设计走查</h1>
+      <span class="tag-badge">方案 1 · 原生轻量流 (原地倒计时撤回)</span>
+    </div>
+    <div class="toggles">
+      <button class="theme-btn" onclick="toggleGlobalTheme()">🌓 切换深浅外观</button>
+      <button class="theme-btn" onclick="toggleEmptyState()">📭 切换空态</button>
+      <button class="theme-btn" onclick="resetMockData()">🔄 重置已读数据</button>
+    </div>
+  </header>
+
+  <!-- 说明与微交互风格选择器 -->
+  <aside class="callout">
+    <h2><span>🎨</span> 会话移除与撤回微交互对比</h2>
+    <div class="switch-row">
+      <span class="label">撤回交互模式：</span>
+      <button class="style-pill-btn active" id="btn-undo-inline" onclick="setUndoMode('inline')">⏱️ 原地倒计时读秒 (推荐·不弹胶囊)</button>
+      <button class="style-pill-btn" id="btn-undo-toast" onclick="setUndoMode('toast')">💬 底部单行 Toast 胶囊</button>
+    </div>
+    <div class="switch-row">
+      <span class="label">已读按钮形态：</span>
+      <button class="style-pill-btn active" id="btn-style-ghost" onclick="setReadStyle('ghost')">方案 A · 中性幽灵胶囊</button>
+      <button class="style-pill-btn" id="btn-style-text" onclick="setReadStyle('text')">方案 B · 纯净文字变形</button>
+      <button class="style-pill-btn" id="btn-style-icon" onclick="setReadStyle('icon')">方案 C · 独立微型小勾</button>
+    </div>
+  </aside>
+
+  <!-- 主展示单卡片 -->
+  <main class="single-stage">
+    <section class="showcase-card">
+      <div class="card-header">
+        <div class="header-left">
+          <span class="ver-tag">V6 RAIL</span>
+          <h3>原生轻量流（Compact Native Stream）</h3>
+        </div>
+        <span class="height-meter">270px 恒定</span>
+      </div>
+
+      <div class="tab-controls">
+        <button id="tab-btn-dash" onclick="switchV6('dash')">概览面板</button>
+        <button class="active" id="tab-btn-sess" onclick="switchV6('sess')">会话面板 (4)</button>
+        <button id="tab-btn-sett" onclick="switchV6('sett')">首选项设置</button>
+      </div>
+
+      <div class="sim-wrap">
+        <div class="popup-frame w360">
+          <div class="v6-box">
+
+            <!-- 左侧 44px 导轨 -->
+            <nav class="v6-rail" aria-label="快捷导航">
+              <button class="v6-rail-btn" id="v6-r-dash" title="服务监控概览" onclick="switchV6('dash')">
+                <span data-dsh-icon="IconPanelLeftOutline16" data-size="16"></span>
+              </button>
+              <button class="v6-rail-btn active" id="v6-r-sess" title="会话状态感知" onclick="switchV6('sess')">
+                <span data-dsh-icon="IconNewChatOutline16" data-size="16"></span>
+                <span id="v6-sess-badge" class="dot-badge"></span>
+              </button>
+              <button class="v6-rail-btn" id="v6-r-sett" title="首选项设置" onclick="switchV6('sett')">
+                <span data-dsh-icon="IconSettingsOutline16" data-size="16"></span>
+              </button>
+              <div style="margin-top:auto" title="服务运行中">
+                <span class="dot green breathe"></span>
+              </div>
+            </nav>
+
+            <!-- 面板 1：服务概览 -->
+            <div class="v6-panel hidden panel-slide-in" id="v6-p-dash">
+              <div class="v6-panel-title">
+                <span style="display:flex;align-items:center;gap:6px">
+                  <span data-dsh-icon="FishLogo" data-size="17" style="color:var(--dsw-alias-label-primary);display:inline-flex"></span>
+                  <span style="font-weight:600;font-size:13.5px;letter-spacing:.2px">Whalekeeper</span>
+                  <span data-dsh-icon="BrandBadge" data-text="DSH WEB"></span>
+                </span>
+                <span class="sessions-count-pill" style="color:var(--dsw-alias-label-caption);background:var(--dsw-alias-bg-module-platform)">3080</span>
+              </div>
+              <div style="font-size:12px;color:var(--dsw-alias-label-caption);margin-bottom:8px">服务监控概览运行良好</div>
+              <button class="btn ghost" style="width:100%" onclick="switchV6('sess')">查看会话列表</button>
+            </div>
+
+            <!-- 面板 2：会话状态感知 (核心升级) -->
+            <div class="v6-panel panel-slide-in" id="v6-p-sess">
+              <div class="v6-panel-title">
+                <span style="display:flex;align-items:center;gap:6px">
+                  <span>会话状态感知</span>
+                  <span id="sessions-count" class="sessions-count-pill">4 活跃</span>
+                </span>
+                <span style="font-size:11px;color:var(--dsw-alias-label-caption)">只读感知</span>
+              </div>
+
+              <!-- 列表容器 -->
+              <div class="sessions-container" id="sessions-list-container">
+                <!-- JS 动态渲染 -->
+              </div>
+              <div id="sessions-empty" style="display:none;text-align:center;padding:28px 0;font-size:12px;color:var(--dsw-alias-label-caption)">
+                <span>暂无活跃会话</span>
+              </div>
+
+              <!-- 底部统一处理 -->
+              <div style="margin-top:auto;padding-top:6px;flex:none">
+                <button class="btn ghost" style="width:100%;height:32px" onclick="triggerWebUIFeedback(this)">
+                  <span>前往 Web UI 统一处理</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 面板 3：首选项设置 -->
+            <div class="v6-panel hidden panel-slide-in" id="v6-p-sett" style="overflow-y:auto;padding-right:4px">
+              <div class="v6-panel-title">
+                <span>首选项设置</span>
+                <span style="font-size:11px;color:var(--dsw-alias-label-caption)">本地配置</span>
+              </div>
+              <div style="font-size:11.5px;padding:8px 0;display:flex;justify-content:space-between;align-items:center">
+                <span>完成会话保留时长</span>
+                <div style="display:flex;align-items:center;gap:4px">
+                  <input id="set-retention" type="number" min="0" max="1440" step="5" value="30" style="width:50px;text-align:right" onchange="onRetentionChange(this.value)"> 分钟
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 原厂 Toast (仅在 Toast 模式下按需浮现) -->
+          <div id="toast" class="toast toast-hidden" role="status">
+            <span id="toast-text">已标记会话为已读</span>
+          </div>
+
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+// ============================================================================
+// 数据集与状态
+// ============================================================================
+const initialSessions = [
+  {
+    sessionId: "sess_waiting_1",
+    title: "修改端口后重启仍为8080的问题 (1)",
+    state: "waiting",
+    updatedAt: Date.now() - 2 * 60 * 1000,
+    hasActiveChildren: false,
+    childRuns: []
+  },
+  {
+    sessionId: "sess_working_1",
+    title: "马斯克的菲勒斯与火箭之喻",
+    state: "working",
+    updatedAt: Date.now() - 4 * 60 * 1000,
+    hasActiveChildren: false,
+    childRuns: []
+  },
+  {
+    sessionId: "sess_stopped_with_children",
+    title: "WSL配置错误排查",
+    state: "completed",
+    updatedAt: Date.now() - 6 * 60 * 1000,
+    hasActiveChildren: true,
+    childRuns: [
+      { childId: "c1", label: "检索代码" },
+      { childId: "c2", label: "审查 PR 方案" }
+    ]
+  },
+  {
+    sessionId: "sess_completed_1",
+    title: "生成Anthem For No State后摇音乐",
+    state: "completed",
+    updatedAt: Date.now() - 14 * 60 * 1000,
+    hasActiveChildren: false,
+    childRuns: []
+  }
+];
+
+let currentSessions = JSON.parse(JSON.stringify(initialSessions));
+let readSessionMap = {};
+let pendingUndoMap = {}; // sessionId -> { remaining: 3, intervalId, title }
+let retentionMins = 30;
+let currentReadStyle = 'ghost';
+let undoMode = 'inline'; // 'inline' (原地倒计时) | 'toast' (底部Toast)
+
+// 切换已读微交互形态
+function setReadStyle(style) {
+  currentReadStyle = style;
+  document.body.setAttribute('data-read-style', style);
+  document.querySelectorAll('#btn-style-ghost, #btn-style-text, #btn-style-icon').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = document.getElementById('btn-style-' + style);
+  if (activeBtn) activeBtn.classList.add('active');
+  renderSessions();
+}
+
+// 切换撤回交互模式
+function setUndoMode(mode) {
+  undoMode = mode;
+  document.querySelectorAll('#btn-undo-inline, #btn-undo-toast').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = document.getElementById('btn-undo-' + mode);
+  if (activeBtn) activeBtn.classList.add('active');
+  hideToast();
+  // 清理进行中的原地倒计时
+  Object.keys(pendingUndoMap).forEach(k => {
+    if (pendingUndoMap[k].intervalId) clearInterval(pendingUndoMap[k].intervalId);
+  });
+  pendingUndoMap = {};
+  renderSessions();
+}
+
+// ---------- 全局深浅色切换 ----------
+let isDark = false;
+function toggleGlobalTheme() {
+  isDark = !isDark;
+  applyTheme();
+}
+function applyTheme() {
+  if (isDark) {
+    document.documentElement.setAttribute('data-theme', 'dark-preview');
+    document.body.setAttribute('data-ds-dark-theme', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    document.body.removeAttribute('data-ds-dark-theme');
+  }
+}
+if (isDark) applyTheme();
+
+// ---------- V6 面板切换 ----------
+function switchV6(tab) {
+  ['dash', 'sess', 'sett'].forEach(function(t){
+    const r = document.getElementById('v6-r-' + t);
+    const p = document.getElementById('v6-p-' + t);
+    const tb = document.getElementById('tab-btn-' + t);
+    if (r) r.classList.toggle('active', t === tab);
+    if (tb) tb.classList.toggle('active', t === tab);
+    if (p) {
+      p.classList.toggle('hidden', t !== tab);
+      if (t === tab) {
+        p.classList.remove('panel-slide-in');
+        void p.offsetWidth;
+        p.classList.add('panel-slide-in');
+      }
+    }
+  });
+}
+
+function sortSessions(list) {
+  const getPriority = (item) => {
+    if (item.state === 'waiting') return 1;
+    if (item.state === 'working' || (item.state === 'completed' && item.hasActiveChildren)) return 2;
+    if (item.state === 'completed' && !item.hasActiveChildren) return 3;
+    return 4;
+  };
+  return [...list].sort((a, b) => {
+    const pA = getPriority(a);
+    const pB = getPriority(b);
+    if (pA !== pB) return pA - pB;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+}
+
+// ---------- 渲染会话感知面板 ----------
+function renderSessions() {
+  const container = document.getElementById('sessions-list-container');
+  const emptyEl = document.getElementById('sessions-empty');
+  const countEl = document.getElementById('sessions-count');
+  const railBadge = document.getElementById('v6-sess-badge');
+  const tabBtn = document.getElementById('tab-btn-sess');
+
+  const now = Date.now();
+  const shown = currentSessions.filter(it => {
+    if (it.state === 'idle') return false;
+    if (it.state === 'waiting' || it.state === 'working') return true;
+    if (it.state === 'completed') {
+      if (it.hasActiveChildren) return true;
+      if (retentionMins <= 0) return false;
+      const readAt = readSessionMap[it.sessionId] || 0;
+      if (it.updatedAt && it.updatedAt <= readAt) return false;
+      const ageMins = (now - (it.updatedAt || now)) / 60000;
+      return ageMins <= retentionMins;
+    }
+    return false;
+  });
+
+  const sorted = sortSessions(shown);
+  const mainCount = sorted.length;
+
+  countEl.textContent = mainCount > 0 ? `${mainCount} 活跃` : '';
+  if (tabBtn) tabBtn.textContent = `会话面板 (${mainCount})`;
+
+  const hasPending = sorted.some(it => it.state === 'waiting' || it.state === 'working');
+  if (railBadge) railBadge.style.display = hasPending ? 'block' : 'none';
+
+  if (mainCount === 0) {
+    container.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  container.innerHTML = sorted.map(item => {
+    const isPendingUndo = !!pendingUndoMap[item.sessionId];
+    const remainingSecs = isPendingUndo ? pendingUndoMap[item.sessionId].remaining : 0;
+    const isCompletedNoChild = (item.state === 'completed' && !item.hasActiveChildren);
+
+    let dotHtml = '';
+    let stateHtml = '';
+    let readBtnHtml = '';
+
+    if (item.state === 'waiting') {
+      dotHtml = '<span class="dot amber breathe"></span>';
+      stateHtml = '<span class="session-state" style="color:var(--dsh-mgr-sem-waiting);font-weight:500">待确认</span>';
+    } else if (item.state === 'working') {
+      dotHtml = typeof renderStateMatrix === 'function' ? renderStateMatrix(10) : '<span class="dot blue"></span>';
+      stateHtml = '<span class="session-state shimmer-text">进行中</span>';
+    } else if (item.state === 'completed') {
+      dotHtml = '<span class="dot green breathe"></span>';
+      if (item.hasActiveChildren) {
+        stateHtml = '<span class="session-state">已停止</span>';
+      } else {
+        stateHtml = '<span class="session-state">已完成</span>';
+      }
+    }
+
+    if (isPendingUndo) {
+      // 原地倒计时等待状态
+      stateHtml = '';
+      readBtnHtml = `
+        <div class="inline-undo-pill">
+          <span>已读</span>
+          <button class="inline-undo-btn" onclick="cancelInlineUndo('${item.sessionId}', event)" title="点击恢复会话">
+            <span>撤销</span>
+            <span class="countdown-badge" id="countdown-${item.sessionId}">${remainingSecs}s</span>
+          </button>
+        </div>
+      `;
+    } else if (isCompletedNoChild) {
+      // 正常可已读状态
+      if (currentReadStyle === 'ghost') {
+        readBtnHtml = `
+          <button class="btn-mark-read" onclick="markAsRead('${item.sessionId}', '${escapeHtml(item.title)}', event)" title="标记已读">
+            <svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>
+            <span>已读</span>
+          </button>
+        `;
+      } else if (currentReadStyle === 'text') {
+        readBtnHtml = `
+          <button class="btn-mark-read" onclick="markAsRead('${item.sessionId}', '${escapeHtml(item.title)}', event)" title="标记已读">
+            <span>标为已读</span>
+          </button>
+        `;
+      } else if (currentReadStyle === 'icon') {
+        readBtnHtml = `
+          <button class="btn-mark-read" onclick="markAsRead('${item.sessionId}', '${escapeHtml(item.title)}', event)" title="标记已读">
+            <svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>
+          </button>
+        `;
+      }
+    }
+
+    let subagentsHtml = '';
+    if (item.hasActiveChildren && Array.isArray(item.childRuns) && item.childRuns.length > 0) {
+      subagentsHtml = `
+        <div class="subagent-branch-wrap">
+          ${item.childRuns.map(c => `
+            <div class="subagent-leaf-row">
+              <div class="subagent-leaf-content">
+                ${typeof renderStateMatrix === 'function' ? renderStateMatrix(8) : '<span class="dot blue"></span>'}
+                <span class="subagent-title" title="${escapeHtml(c.label || '子代理')}">${escapeHtml(c.label || '子代理')}</span>
+                <span class="session-state shimmer-text" style="font-size:10.5px">进行中</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="session-unit ${isPendingUndo ? 'is-pending-undo' : ''}" id="unit-${item.sessionId}">
+        <div class="session-row ${isCompletedNoChild && !isPendingUndo ? 'can-read' : ''}" title="${escapeHtml(item.title)}">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+            ${dotHtml}
+            <span class="session-title">${escapeHtml(item.title || '未命名会话')}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            ${stateHtml}
+            ${readBtnHtml}
+          </div>
+        </div>
+        ${subagentsHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+// ---------- 标记已读核心分支 ----------
+function markAsRead(sessionId, title, event) {
+  if (event) event.stopPropagation();
+
+  if (undoMode === 'inline') {
+    // 方案 1：原地倒计时读秒（不弹 Toast 胶囊）
+    startInlineCountdown(sessionId, title);
+  } else {
+    // 方案 2：底部 Toast 胶囊
+    const el = document.getElementById(`unit-${sessionId}`);
+    if (el) el.classList.add('removing');
+
+    setTimeout(() => {
+      readSessionMap[sessionId] = Date.now();
+      renderSessions();
+      const shortTitle = (title || '会话').slice(0, 6);
+      showToastWithUndo(`已将「${shortTitle}」标为已读`, () => {
+        delete readSessionMap[sessionId];
+        renderSessions();
+      });
+    }, 180);
+  }
+}
+
+// ---------- 原地倒计时逻辑 ----------
+function startInlineCountdown(sessionId, title) {
+  if (pendingUndoMap[sessionId]) return;
+
+  const COUNTDOWN_SECONDS = 3;
+  pendingUndoMap[sessionId] = {
+    remaining: COUNTDOWN_SECONDS,
+    title: title
+  };
+
+  renderSessions();
+
+  const intervalId = setInterval(() => {
+    if (!pendingUndoMap[sessionId]) {
+      clearInterval(intervalId);
+      return;
+    }
+    pendingUndoMap[sessionId].remaining -= 1;
+    if (pendingUndoMap[sessionId].remaining <= 0) {
+      clearInterval(intervalId);
+      // 时间到，执行退出动效并落库已读
+      const el = document.getElementById(`unit-${sessionId}`);
+      if (el) el.classList.add('removing');
+      setTimeout(() => {
+        readSessionMap[sessionId] = Date.now();
+        delete pendingUndoMap[sessionId];
+        renderSessions();
+      }, 180);
+    } else {
+      // 局部更新倒计时徽标，避免整表重刷
+      const badge = document.getElementById(`countdown-${sessionId}`);
+      if (badge) {
+        badge.textContent = `${pendingUndoMap[sessionId].remaining}s`;
+      } else {
+        renderSessions();
+      }
+    }
+  }, 1000);
+
+  pendingUndoMap[sessionId].intervalId = intervalId;
+}
+
+// 原地撤销
+function cancelInlineUndo(sessionId, event) {
+  if (event) event.stopPropagation();
+  if (pendingUndoMap[sessionId]) {
+    if (pendingUndoMap[sessionId].intervalId) {
+      clearInterval(pendingUndoMap[sessionId].intervalId);
+    }
+    delete pendingUndoMap[sessionId];
+    renderSessions();
+  }
+}
+
+// ---------- Toast 提示 (仅在 Toast 模式触发) ----------
+let toastTimer = null;
+function showToastWithUndo(msg, undoFn) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.innerHTML = `<span class="toast-text">${msg}</span><button class="toast-undo-btn" id="toast-undo-btn">撤销</button>`;
+  t.classList.remove('toast-hidden');
+  const btn = document.getElementById('toast-undo-btn');
+  if (btn && undoFn) {
+    btn.onclick = (e) => {
+      if (e) e.stopPropagation();
+      undoFn();
+      hideToast();
+    };
+  }
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 3500);
+}
+function hideToast() {
+  const t = document.getElementById('toast');
+  if (t) t.classList.add('toast-hidden');
+}
+
+function onRetentionChange(val) {
+  retentionMins = parseInt(val, 10) || 0;
+  renderSessions();
+}
+function toggleEmptyState() {
+  if (currentSessions.length > 0) {
+    currentSessions._saved = currentSessions;
+    currentSessions = [];
+  } else {
+    currentSessions = currentSessions._saved || JSON.parse(JSON.stringify(initialSessions));
+  }
+  renderSessions();
+}
+function resetMockData() {
+  Object.keys(pendingUndoMap).forEach(k => {
+    if (pendingUndoMap[k].intervalId) clearInterval(pendingUndoMap[k].intervalId);
+  });
+  pendingUndoMap = {};
+  readSessionMap = {};
+  currentSessions = JSON.parse(JSON.stringify(initialSessions));
+  hideToast();
+  renderSessions();
+}
+function triggerWebUIFeedback(btn) {
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span>调起浏览器中...</span>';
+  setTimeout(() => btn.innerHTML = orig, 1000);
+}
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (typeof injectDSHAssets === 'function') injectDSHAssets();
+  renderSessions();
+});
+  </script>
+</body>
+</html>

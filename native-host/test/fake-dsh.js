@@ -43,6 +43,19 @@ const exitImmediately =
 const noLifecycle = process.env.DSH_FAKE_NO_LIFECYCLE === '1';
 // M4：模拟「dsh 不打印 URL 行」场景（动态端口发现失败的活进程，供占位期 status 测试）
 const noUrl = process.env.DSH_FAKE_NO_URL === '1';
+// M9：模拟「未安装/未升级 dsh-manager 配套插件」场景——/_manager/sessions 不注册
+//（落入 SPA 200 HTML -> 宿主 JSON 解析失败 -> sessions 不可用降级）。
+// 默认注册：响应体 items 取自 DSH_FAKE_SESSIONS（JSON 数组），缺省为空数组。
+const noManager = process.env.DSH_FAKE_NO_MANAGER === '1';
+let managerItems = [];
+if (!noManager && process.env.DSH_FAKE_SESSIONS !== undefined) {
+  try {
+    const parsed = JSON.parse(process.env.DSH_FAKE_SESSIONS);
+    if (Array.isArray(parsed)) managerItems = parsed;
+  } catch (err) {
+    /* 非法 JSON 维持空数组 */
+  }
+}
 
 // 宿主版本检查：node fake-dsh.js --version
 if (process.argv.includes('--version')) {
@@ -103,6 +116,11 @@ function respond(actualPort, req, res) {
     res.writeHead(202, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     setTimeout(() => process.exit(0), 100);
+    return;
+  }
+  if (!noManager && req.method === 'GET' && req.url === '/_manager/sessions') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, items: managerItems }));
     return;
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

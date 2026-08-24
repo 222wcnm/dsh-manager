@@ -64,6 +64,10 @@
 //   27 M5.5 Windows 隐藏控制台载体：start -> run 记录 pid 为端口表反查的真实进程
 //      （非载体 wscript 的 pid）且存活 -> status 一致 -> restart pid 变化 ->
 //      stop 优雅 -> 记录清除（POSIX 记 SKIP：无载体，直接 spawn）
+//   28 M9 会话摘要（sessions 动作）：无 run 记录 -> available:false；
+//      start（DSH_FAKE_SESSIONS 注入两态会话）-> sessions -> available:true 且
+//      items 原样透传；DSH_FAKE_NO_MANAGER=1（插件未装，SPA 200 非 JSON）->
+//      available:false（降级不抛错）
 //
 // 确定性：BASE_ENV 默认注入 DSH_MANAGER_FAKE_PROCESSES='[]' 屏蔽真实进程枚举
 //（本机常驻真实 dsh web 8080 会让 2/8/12 等「空目录」场景误报 external）；
@@ -362,7 +366,24 @@ async function scenarioLifecycle() {
   expect(s6 && s6.ok === true && s6.result.state === 'running', '6 restart -> running', JSON.stringify(s6));
   const rec6 = readRunFile();
   expect(rec6 && rec6.pid !== pid3, '6 restart 后 pid 变化', `old=${pid3} new=${rec6 && rec6.pid}`);
-  const pid6 = rec6.pid;
+
+  // S6b restart 携带与记录不同的端口 -> 生效（2026-08-24 修复：原实现忽略 payload，
+  //     设置改端口后点重启仍起旧端口；协议 §6.2 声明 port/profile 为 start/restart 用）
+  const s6b = runHost({ id: 's6b', action: 'restart', payload: { port: 31904 } }, 's6b');
+  expect(s6b && s6b.ok === true && s6b.result.state === 'running' && s6b.result.port === 31904,
+    '6 restart payload 端口覆盖 -> running@31904', JSON.stringify(s6b && s6b.result));
+  const rec6b = readRunFile();
+  expect(rec6b && rec6b.port === 31904 && rec6b.pid !== rec6.pid,
+    '6 restart 端口覆盖后记录与 pid 正确', rec6b ? JSON.stringify({ pid: rec6b.pid, port: rec6b.port }) : '缺失');
+
+  // S6c restart 显式改回 31903（覆盖「改回」路径，并保持 S7 的 31903 端口关闭断言成立）
+  const s6c = runHost({ id: 's6c', action: 'restart', payload: { port: 31903 } }, 's6c');
+  expect(s6c && s6c.ok === true && s6c.result.state === 'running' && s6c.result.port === 31903,
+    '6 restart payload 改回 -> running@31903', JSON.stringify(s6c && s6c.result));
+  const rec6c = readRunFile();
+  expect(rec6c && rec6c.port === 31903 && rec6c.pid !== rec6b.pid,
+    '6 restart 改回后记录与 pid 正确', rec6c ? JSON.stringify({ pid: rec6c.pid, port: rec6c.port }) : '缺失');
+  const pid6 = rec6c.pid; // S7 停止目标：最后一次重启的实例
 
   // S7 stop -> stopped，端口关闭，记录清除，进程退出
   const s7 = runHost({ id: 's7', action: 'stop', payload: {} }, 's7');
@@ -1107,6 +1128,69 @@ async function scenarioCarrierLaunch() {
 }
 
 // ---------------------------------------------------------------------------
+// M9 场景 28（sessions 动作：插件端点应答 / 不可用降级）
+// ---------------------------------------------------------------------------
+async function scenarioSessions() {
+  cleanup();
+  // 28a 无 run 记录 -> available:false（不抛错）
+  const a = runHost({ id: 's28a', action: 'sessions', payload: {} }, 's28a');
+  expect(a && a.ok === true && a.result && a.result.available === false
+    && Array.isArray(a.result.items) && a.result.items.length === 0,
+    '28 无 run 记录 -> available:false', JSON.stringify(a && a.result));
+
+  // 28b 插件应答：start（DSH_FAKE_SESSIONS 注入两态会话）-> sessions ->
+  //     available:true 且 items 原样透传（sessionId/state/title，缺省字段不补）
+  const fakeItems = [
+    { sessionId: 'session-abc', title: 'alpha 会话', state: 'working', updatedAt: 1700000000000, blank: false, cwd: 'D:\\w' },
+    { sessionId: 'session-def', state: 'completed', updatedAt: 1700000001000, blank: false },
+  ];
+  const s = runHost({ id: 's28b', action: 'start', payload: { port: 31928 } }, 's28b', {
+    DSH_FAKE_SESSIONS: JSON.stringify(fakeItems),
+  });
+  expect(s && s.ok === true && (s.result.state === 'starting' || s.result.state === 'running'),
+    '28 start -> ok', JSON.stringify(s));
+  const se = runHost({ id: 's28c', action: 'sessions', payload: {} }, 's28c', {
+    DSH_FAKE_SESSIONS: JSON.stringify(fakeItems),
+  });
+  expect(se && se.ok === true && se.result && se.result.available === true,
+    '28 sessions -> available:true', JSON.stringify(se && se.result));
+  expect(se.result.items.length === 2
+    && se.result.items[0].sessionId === 'session-abc'
+    && se.result.items[0].state === 'working'
+    && se.result.items[0].title === 'alpha 会话',
+    '28 items 透传（sessionId/state/title）', JSON.stringify(se.result.items));
+  expect(se.result.items[1].cwd === undefined,
+    '28 无 cwd 字段时不补默认值', JSON.stringify(se.result.items[1]));
+
+  // 28c 插件未装降级：stop 清理 -> DSH_FAKE_NO_MANAGER=1 实例（SPA 200 非 JSON）
+  //      -> sessions available:false（降级不抛错）
+  const stop1 = runHost({ id: 's28d', action: 'stop', payload: {} }, 's28d', {
+    DSH_FAKE_SESSIONS: JSON.stringify(fakeItems),
+  });
+  expect(stop1 && stop1.ok === true && stop1.result.state === 'stopped',
+    '28 清理：stop', JSON.stringify(stop1));
+  cleanup();
+  const s2 = runHost({ id: 's28e', action: 'start', payload: { port: 31928 } }, 's28e', {
+    DSH_FAKE_NO_MANAGER: '1',
+  });
+  expect(s2 && s2.ok === true && (s2.result.state === 'starting' || s2.result.state === 'running'),
+    '28 start(no manager) -> ok', JSON.stringify(s2));
+  const se2 = runHost({ id: 's28f', action: 'sessions', payload: {} }, 's28f', {
+    DSH_FAKE_NO_MANAGER: '1',
+  });
+  expect(se2 && se2.ok === true && se2.result && se2.result.available === false
+    && Array.isArray(se2.result.items) && se2.result.items.length === 0,
+    '28 插件未装 -> available:false（降级不抛错）', JSON.stringify(se2 && se2.result));
+
+  const stop2 = runHost({ id: 's28g', action: 'stop', payload: {} }, 's28g', {
+    DSH_FAKE_NO_MANAGER: '1',
+  });
+  expect(stop2 && stop2.ok === true && stop2.result.state === 'stopped',
+    '28 清理：stop(no manager)', JSON.stringify(stop2));
+  cleanup();
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 async function main() {
@@ -1161,6 +1245,8 @@ async function main() {
   try { await scenarioPosixPlatform(); } catch (e) { console.log('  场景 26 异常:', e.message); }
   cleanup();
   try { await scenarioCarrierLaunch(); } catch (e) { console.log('  场景 27 异常:', e.message); }
+  cleanup();
+  try { await scenarioSessions(); } catch (e) { console.log('  场景 28 异常:', e.message); }
   cleanup();
 
   const failed = results.filter((r) => !r.ok);

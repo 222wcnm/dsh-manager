@@ -128,14 +128,17 @@ function renderEmpty() {
   pre.textContent = '（日志文件为空——dsh web 尚未启动或尚无输出）';
 }
 
+// 状态点只表达 dsh 运行状态（error/running/stopped）——页面日志请求在途（busy）不映射到
+// 状态点：原实现每 2s 自动刷新的请求窗口把绿点切为 dot-busy（Matrix 闪现，观感「点阵一闪
+// 即无」）；popup 状态卡/面板 chip 的 busy 是真实 dsh 状态转换，语义不同（design §8.8 注）。
 function setDot(state) {
   const dot = $('dot');
-  dot.className = 'dot ' + (state === 'running' ? 'dot-running' : state === 'busy' ? 'dot-busy' : state === 'error' ? 'dot-error' : 'dot-stopped');
+  dot.className = 'dot ' + (state === 'running' ? 'dot-running' : state === 'error' ? 'dot-error' : 'dot-stopped');
 }
 
-// 按优先级渲染状态圆点：error > busy > running/stopped
+// 按优先级渲染状态圆点：error > running/stopped（dsh 运行态，probeRunningState 更新）
 function renderDot() {
-  setDot(hasError ? 'error' : busy ? 'busy' : dshRunning ? 'running' : 'stopped');
+  setDot(hasError ? 'error' : dshRunning ? 'running' : 'stopped');
 }
 
 // 探测一次 dsh web 状态（仅更新圆点展示，失败静默保留原状态）
@@ -369,6 +372,7 @@ function bindEvents() {
 }
 
 async function init() {
+  DSHTheme.init(); // M6：尽早应用主题（避免浅色闪烁），并订阅 storage/webuiTheme + matchMedia
   bindEvents();
   // 先探测一次运行状态决定圆点颜色（失败不阻塞日志加载）
   await probeRunningState();
