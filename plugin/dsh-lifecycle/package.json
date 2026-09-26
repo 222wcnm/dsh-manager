@@ -1,7 +1,7 @@
 {
   "name": "dsh-lifecycle",
-  "version": "0.2.0",
-  "description": "DSH lifecycle plugin: a loopback-fenced graceful-shutdown endpoint (POST /_lifecycle/shutdown) and a health endpoint (GET /_lifecycle/health), injected via the dsh webServer and appExit services.",
+  "version": "0.4.0",
+  "description": "DSH lifecycle plugin: graceful shutdown, health, read-only session summary and SSE push endpoints, plus a local readiness signal for Whalekeeper-managed instances.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -10,10 +10,11 @@
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.1.0-rc.6 <0.2.0"
+    "@deepseek-ai/dsh": ">=0.1.0-rc.6 <0.2.0-0"
   },
   "files": [
     "index.js",
+    "readiness.js",
     "README.md",
     "cordis.patch.yml"
   ],

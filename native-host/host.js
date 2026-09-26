@@ -1,6 +1,6 @@
 'use strict';
 // ============================================================================
-// DSH Manager —— Native Messaging 宿主（Windows）
+// Whalekeeper —— Native Messaging 宿主（Windows）
 // 通过浏览器扩展（Chrome/Edge）管理 DeepSeek Harness（dsh）web 服务的生命周期：
 //   ping / status / start / stop / restart / adopt / logs
 // 单文件、纯 Node CJS、零第三方依赖、Node >= 18。
@@ -56,6 +56,7 @@ const os = require('os');
 const { spawn, spawnSync } = require('child_process');
 const net = require('net');
 const http = require('http');
+const { randomBytes } = require('crypto');
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -106,6 +107,62 @@ const RUN_FILE = path.join(RUN_DIR, 'dsh-web.json'); // 唯一权威 run 记录�
 const PID_FILE = path.join(RUN_DIR, 'dsh-web.pid'); // 冗余纯文本 pid
 const LOCK_FILE = path.join(RUN_DIR, 'host.lock'); // 跨宿主互斥锁（'wx' 原子创建）
 const LOG_FILE = path.join(LOGS_DIR, 'dsh-web.log'); // dsh stdout+stderr 追加日志
+const READY_DIR = path.join(BASE_DIR, 'ready');
+const READY_FILE = path.join(READY_DIR, 'dsh-web.json');
+
+// Plugin-owned readiness lease (design §6.9); never accept a path from a request/run record.
+function readReadiness(expected) {
+  if (!expected || !/^[a-f0-9]{32}$/.test(expected.launchId || '')
+    || !Number.isSafeInteger(expected.launchStartedAt)) return null;
+  try {
+    if (fs.statSync(READY_FILE).size > 8192) return null;
+    const signal = JSON.parse(fs.readFileSync(READY_FILE, 'utf8'));
+    const now = Date.now();
+    if (!signal || signal.schemaVersion !== 1 || signal.launchId !== expected.launchId
+      || signal.launchStartedAt !== expected.launchStartedAt
+      || signal.host !== DEFAULT_HOST || !['starting', 'ready'].includes(signal.state)
+      || !Number.isInteger(signal.pid) || signal.pid <= 0
+      || (expected.pid && signal.pid !== expected.pid)
+      || !Number.isInteger(signal.port) || signal.port < 1 || signal.port > 65535
+      || (expected.port > 0 && signal.port !== expected.port)
+      || !Number.isSafeInteger(signal.startedAt) || signal.startedAt <= 0 || signal.startedAt > now + 2000
+      || !Number.isSafeInteger(signal.updatedAt) || signal.updatedAt < expected.launchStartedAt
+      || now - signal.updatedAt > 10000 || signal.updatedAt > now + 2000
+      || typeof signal.pluginVersion !== 'string' || typeof signal.nodeVersion !== 'string'
+      || !pidAlive(signal.pid) || !pidLooksLikeDsh(signal.pid, expected.binPath)) return null;
+    return signal;
+  } catch (_) { return null; }
+}
+
+function readinessEnv(v) {
+  return {
+    ...process.env,
+    DSH_MANAGER_READY_FILE: READY_FILE,
+    DSH_MANAGER_LAUNCH_ID: v.launchId,
+    DSH_MANAGER_LAUNCH_STARTED_AT: String(v.launchStartedAt),
+  };
+}
+
+// Watch before spawning, and retain a timer fallback for unsupported/missed fs events.
+function watchReadiness() {
+  let wake = null;
+  let watcher = null;
+  try {
+    fs.mkdirSync(READY_DIR, { recursive: true });
+    watcher = fs.watch(READY_DIR, () => { if (wake) wake(); });
+    watcher.on('error', () => { watcher.close(); watcher = null; if (wake) wake(); });
+  } catch (_) { /* Timer fallback. */ }
+  return {
+    wait(ms) {
+      return new Promise((resolve) => {
+        const done = () => { clearTimeout(timer); wake = null; resolve(); };
+        const timer = setTimeout(done, ms);
+        wake = done;
+      });
+    },
+    close() { if (watcher) watcher.close(); if (wake) wake(); },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // 通用工具
@@ -336,7 +393,10 @@ function pidLooksLikeDsh(pid, binPath) {
 // ---------------------------------------------------------------------------
 // 网络探测
 // ---------------------------------------------------------------------------
-// HTTP 探活：GET http://127.0.0.1:<port>/，timeoutMs 超时，任意 2xx/3xx 视为成功
+// HTTP 探活：GET http://127.0.0.1:<port>/，timeoutMs 超时，任意 2xx/3xx 视为成功。
+// M13（§2.1.1 B1）：dsh ≥ 0.1.2 起 GET / 对无凭据请求返回 401——401 恰证明 dsh
+// 认证中间件已挂载（比 200 更强的「这是 dsh 且已起来」信号），一并视为就绪。
+// 探测请求不得发送 Accept-Encoding（§2.1.1 B2，gzip 默认开启）。
 function httpProbe(port, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
@@ -356,7 +416,7 @@ function httpProbe(port, timeoutMs) {
     }, (res) => {
       const code = res.statusCode || 0;
       res.resume(); // 丢弃响应体
-      finish(code >= 200 && code < 400);
+      finish((code >= 200 && code < 400) || code === 401);
     });
     req.on('timeout', () => finish(false));
     req.on('error', () => finish(false));
@@ -571,18 +631,6 @@ async function waitProcessStopped(pid, port, totalMs, intervalMs) {
   return !pidAlive(pid) || !(await portConnectable(port, 800));
 }
 
-// 轮询端口探活就绪（start 用，500ms 间隔，最长 30s）
-async function pollPortReady(port, totalMs, intervalMs) {
-  const deadline = Date.now() + totalMs;
-  for (;;) {
-    if (await httpProbe(port, 1200)) return true;
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    await sleep(Math.min(intervalMs, remaining));
-  }
-  return await httpProbe(port, 1200);
-}
-
 // ---------------------------------------------------------------------------
 // 外部实例发现（design §6.6）：检测非本扩展启动的 dsh web 及其运行端口
 // 全部只读：进程枚举 + netstat 端口表 + 回环 GET 指纹探测。
@@ -714,7 +762,11 @@ function listNodeProcessesWin() {
 // 命令行是否为 dsh web 入口。返回：
 //   undefined 不是 dsh 入口；null 是入口但未指定端口；0 是 --port 0（动态）；n>0 指定端口
 function classifyDshCmdline(cmdline) {
-  if (!/node_modules[\\/]@deepseek-ai[\\/]dsh[\\/]lib[\\/]bin\.js/.test(cmdline)) return undefined;
+  const isDshBin =
+    /node_modules[\\/]@deepseek-ai[\\/]dsh[\\/]lib[\\/]bin\.js/.test(cmdline) ||
+    /deepseek-harness.*[\\/]bin\.js/.test(cmdline) ||
+    /@deepseek-ai[\\/]dsh.*[\\/]bin\.js/.test(cmdline);
+  if (!isDshBin) return undefined;
   const isWeb =
     /(?:^|\s)--profile(?:=|\s+)web(?=\s|$)/.test(cmdline) ||
     /(?:^|\s)web(?=\s|$)/.test(cmdline) ||
@@ -824,6 +876,10 @@ function listTcpListenersWin() {
 }
 
 // dsh 指纹探测：GET / 读响应体前 8KB，须含 'DeepSeek Harness'（真实 index.html <title>）
+// M13（§2.1.1 B1）：dsh ≥ 0.1.2 起 GET / 受启动令牌认证（无凭据 401 且 body 无指纹），
+// 指纹端点改探公开静态资产 /manifest.webmanifest（上游明示非 index 资产保持公开；
+// rc.2 与 0.1.2-rc.1 均 200 且含 "name": "DeepSeek Harness"；body 仅 267 字节，
+// 8KB 早退分支天然不触发）。探测请求不得发送 Accept-Encoding（§2.1.1 B2）。
 function httpDshProbe(port, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
@@ -836,7 +892,7 @@ function httpDshProbe(port, timeoutMs) {
     const req = http.get({
       host: '127.0.0.1',
       port,
-      path: '/',
+      path: '/manifest.webmanifest',
       timeout: timeoutMs,
       headers: { Connection: 'close' },
       agent: false,
@@ -1071,7 +1127,7 @@ function getDshVersion(bin) {
 // 载体（wscript→cmd）即刻退出，dsh 独立存活；真实 PID 由 startDshCore 在端口
 // 就绪后经端口表反查（findPidByPort），不以 wscript 的 pid 为准。
 const VBS_LAUNCH_SOURCE = [
-  "' DSH Manager: launch dsh with a hidden console (design §6.3 M5.5)",
+  "' Whalekeeper: launch dsh with a hidden console (design §6.3 M5.5)",
   "' Usage: wscript.exe launch-hidden.vbs  (command line via env DSH_MANAGER_LAUNCH_CMD)",
   "' windowStyle=0 (SW_HIDE): the console window is created but never shown -",
   "' dsh keeps a console (its children inherit it, no flash windows) while the",
@@ -1090,15 +1146,153 @@ const VBS_LAUNCH_SOURCE = [
   '',
 ].join('\n');
 
-function spawnDsh(bin, v) {
-  if (IS_WIN) return spawnDshWinCarrier(bin, v);
+// ---------------------------------------------------------------------------
+// 启动规格解析（支持 global / npx / source 三种启动方式）
+// ---------------------------------------------------------------------------
+function sourceProfileOverlay() {
+  const file = path.join(RUN_DIR, 'source-no-ssh.patch.yml');
+  const content = '- id: mcp-ssh\n  disabled: true\n';
+  try {
+    fs.mkdirSync(RUN_DIR, { recursive: true });
+    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === content) return file;
+    fs.writeFileSync(file, content, { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    throw new AppError('INTERNAL', '无法准备本地源码启动覆盖文件: ' + (err && err.message));
+  }
+  return file;
+}
+
+function resolveLaunchSpec(v) {
+  const mode = (v && v.launchMode) || 'global';
+  // a. DSH_BIN_STUB（测试用，直接替代真实 bin.js；仅 TEST_MODE 生效）
+  if (testMode() && process.env.DSH_BIN_STUB) {
+    log('使用 DSH_BIN_STUB: ' + process.env.DSH_BIN_STUB);
+    const bin = process.env.DSH_BIN_STUB;
+    return {
+      exe: process.execPath,
+      args: [bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+      binPath: bin,
+      version: getDshVersion(bin),
+      launchMode: mode,
+      customPath: v.customPath || '',
+    };
+  }
+
+  // b. npx 快速免安装启动（官方最新推文推荐）
+  if (mode === 'npx') {
+    let npxExe = IS_WIN ? 'npx.cmd' : 'npx';
+    if (IS_WIN) {
+      try {
+        const r = spawnSync('where', ['npx'], {
+          encoding: 'utf8',
+          windowsHide: true,
+          timeout: 5000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        if (!r.error && r.status === 0 && r.stdout) {
+          const first = r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+          if (first) npxExe = first;
+        }
+      } catch (_) {}
+    }
+    const pkg = '@deepseek-ai/dsh';
+    return {
+      exe: npxExe,
+      args: ['-y', pkg, 'web', '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+      binPath: 'npx:' + pkg,
+      version: 'npx',
+      launchMode: mode,
+      customPath: '',
+    };
+  }
+
+  // c. 本地源码 / 脚本路径
+  if (mode === 'source') {
+    const rawPath = sanitizeCustomPath(v.customPath);
+    if (!rawPath || !fs.existsSync(rawPath)) {
+      throw new AppError('BAD_REQUEST', `指定的本地源码路径不存在: ${rawPath}`);
+    }
+    let targetBin = null;
+    try {
+      const stat = fs.statSync(rawPath);
+      if (stat.isFile()) {
+        targetBin = rawPath;
+      } else if (stat.isDirectory()) {
+        const candidates = [
+          path.join(rawPath, 'apps', 'cli', 'lib', 'bin.js'),
+          path.join(rawPath, 'lib', 'bin.js'),
+          path.join(rawPath, 'bin.js'),
+          path.join(rawPath, 'packages', 'cli', 'lib', 'bin.js'),
+          path.join(rawPath, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+        ];
+        // 尝试从 apps/cli/package.json 或根目录 package.json 解析 bin
+        for (const pkgRel of ['apps/cli/package.json', 'package.json']) {
+          const pkgPath = path.join(rawPath, pkgRel);
+          if (fs.existsSync(pkgPath)) {
+            try {
+              const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+              if (pkgJson.bin) {
+                const binTarget = typeof pkgJson.bin === 'string' ? pkgJson.bin : (pkgJson.bin.dsh || Object.values(pkgJson.bin)[0]);
+                if (binTarget) {
+                  candidates.unshift(path.resolve(path.dirname(pkgPath), binTarget));
+                }
+              }
+            } catch (_) {}
+          }
+        }
+        for (const cand of candidates) {
+          if (fs.existsSync(cand)) {
+            targetBin = cand;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      throw new AppError('BAD_REQUEST', `检查本地源码路径失败: ${e && e.message}`);
+    }
+    if (!targetBin) {
+      throw new AppError('BAD_REQUEST', `在源码目录 ${rawPath} 下未找到 lib/bin.js 或 bin.js 入口，请确认是否已完成构建`);
+    }
+    return {
+      exe: process.execPath,
+      args: [targetBin, '--profile', v.profile, '--patch', sourceProfileOverlay(),
+        '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+      binPath: targetBin,
+      version: getDshVersion(targetBin),
+      launchMode: mode,
+      customPath: rawPath,
+    };
+  }
+
+  // d. 默认 global 安装模式
+  const bin = resolveDshBin();
+  if (!bin) {
+    throw new AppError('DSH_NOT_FOUND', '未检测到全局 dsh 安装。请先执行 npm i -g @deepseek-ai/dsh，或在扩展设置中切换为「NPX 免安装」启动方式。');
+  }
+  return {
+    exe: process.execPath,
+    args: [bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+    binPath: bin,
+    version: getDshVersion(bin),
+    launchMode: 'global',
+    customPath: '',
+  };
+}
+
+function spawnDsh(specOrBin, v) {
+  const spec = (typeof specOrBin === 'object' && specOrBin && specOrBin.exe && Array.isArray(specOrBin.args))
+    ? specOrBin
+    : {
+      exe: process.execPath,
+      args: [specOrBin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+    };
+  if (IS_WIN) return spawnDshWinCarrier(spec, v);
   fs.mkdirSync(LOGS_DIR, { recursive: true });
   const logFd = fs.openSync(LOG_FILE, 'a'); // 追加打开；宿主退出后子进程持有自身副本，不受影响
-  const args = [bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs];
-  const child = spawn(process.execPath, args, {
+  const child = spawn(spec.exe, spec.args, {
     detached: true, // dsh 必须独立于宿主存活（design §4.2.2）
     stdio: ['ignore', logFd, logFd], // 不用 pipe：避免宿主退出后 EPIPE
-    env: { ...process.env }, // 透传 DSH_HOME 等
+    env: readinessEnv(v), // 透传 DSH_HOME，并覆盖宿主专属就绪信号变量
   });
   // 必须有 error 监听，否则 spawn 失败会触发 uncaughtException
   child.on('error', (err) => log('dsh 子进程 error: ' + (err && err.message)));
@@ -1108,7 +1302,13 @@ function spawnDsh(bin, v) {
 }
 
 // Windows：隐藏控制台载体启动（design §6.3 第 5 步，M5.5）
-function spawnDshWinCarrier(bin, v) {
+function spawnDshWinCarrier(specOrBin, v) {
+  const spec = (typeof specOrBin === 'object' && specOrBin && specOrBin.exe && Array.isArray(specOrBin.args))
+    ? specOrBin
+    : {
+      exe: process.execPath,
+      args: [specOrBin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs],
+    };
   fs.mkdirSync(BASE_DIR, { recursive: true });
   fs.mkdirSync(LOGS_DIR, { recursive: true }); // cmd 重定向目标目录必须先存在
   const vbs = path.join(BASE_DIR, 'launch-hidden.vbs');
@@ -1120,14 +1320,13 @@ function spawnDshWinCarrier(bin, v) {
   // cmd 命令行：token 全部引号包裹（& | < > 在引号内为字面量），
   // 字面 % 转义为 %%（cmd 变量展开符）；stdout/stderr 追加重定向到日志文件
   const esc = (s) => s.replace(/%/g, '%%');
-  const tokens = [process.execPath, bin, '--profile', v.profile, '--host', v.host,
-    '--port', String(v.port), ...v.extraArgs].map((s) => '"' + esc(s) + '"');
+  const tokens = [spec.exe, ...spec.args].map((s) => '"' + esc(s) + '"');
   const cmdline = tokens.join(' ') + ' 1>> "' + esc(LOG_FILE) + '" 2>&1';
   const child = spawn('wscript.exe', [vbs], {
     detached: true, // 载体即刻退出，dsh 独立存活（design §4.2.2）
     windowsHide: true,
     stdio: 'ignore',
-    env: Object.assign({}, process.env, { DSH_MANAGER_LAUNCH_CMD: cmdline }),
+    env: Object.assign(readinessEnv(v), { DSH_MANAGER_LAUNCH_CMD: cmdline }),
   });
   // 必须有 error 监听，否则 spawn 失败会触发 uncaughtException
   child.on('error', (err) => log('dsh 载体（wscript）启动 error: ' + (err && err.message)));
@@ -1219,17 +1418,14 @@ function readLogTail(lines) {
   }
 }
 
-// M4 动态端口发现（design §6.3 start）：从日志文件 byteOffset 之后的追加内容里
-// 解析 `dsh web: http://127.0.0.1:<port>` URL 行（真实 dsh 绑定后打印实际端口）。
-// 返回实际端口（1-65535，取最后一次匹配；port 0 的占位行被跳过），未找到返回 null。
-// 任何读取/解析失败静默返回 null（不抛，发现失败走 START_TIMEOUT/starting 兜底）。
-function discoverPortFromLog(byteOffset) {
+// 读取日志文件 byteOffset 之后的追加内容（UTF-8，尽力而为；失败/空返回 ''）。
+// M13：discoverPortFromLog 与 discoverLaunchUrlFromLog 共用的读取底座。
+function readLogSince(byteOffset) {
   try {
     const stat = fs.statSync(LOG_FILE);
     const offset = Number.isInteger(byteOffset) ? Math.min(Math.max(byteOffset, 0), stat.size) : 0;
-    if (stat.size <= offset) return null;
+    if (stat.size <= offset) return '';
     const fd = fs.openSync(LOG_FILE, 'r');
-    let raw = '';
     try {
       const len = stat.size - offset;
       const buf = Buffer.alloc(len);
@@ -1239,20 +1435,56 @@ function discoverPortFromLog(byteOffset) {
         if (n <= 0) break;
         off += n;
       }
-      raw = buf.subarray(0, off).toString('utf8');
+      return buf.subarray(0, off).toString('utf8');
     } finally {
       try { fs.closeSync(fd); } catch (e) { /* 忽略 */ }
     }
-    const re = /dsh\s*web:\s*https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})/gi;
-    let found = null;
-    let m;
-    while ((m = re.exec(raw)) !== null) {
-      const p = Number(m[1]);
-      if (Number.isInteger(p) && p >= 1 && p <= 65535) found = p;
-    }
-    return found;
   } catch (err) {
-    return null;
+    return '';
+  }
+}
+
+// M4 动态端口发现（design §6.3 start）：从日志文件 byteOffset 之后的追加内容里
+// 解析 `dsh web: http://127.0.0.1:<port>` URL 行（真实 dsh 绑定后打印实际端口）。
+// 返回实际端口（1-65535，取最后一次匹配；port 0 的占位行被跳过），未找到返回 null。
+// 任何读取/解析失败静默返回 null（不抛，发现失败走 START_TIMEOUT/starting 兜底）。
+function discoverPortFromLog(byteOffset) {
+  const raw = readLogSince(byteOffset);
+  if (raw === '') return null;
+  const re = /dsh\s*web:\s*https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})/gi;
+  let found = null;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const p = Number(m[1]);
+    if (Number.isInteger(p) && p >= 1 && p <= 65535) found = p;
+  }
+  return found;
+}
+
+// M13（§2.1.1 B1/F5）：从日志 byteOffset 之后的追加内容捕获完整启动 URL 行
+// `dsh web: http://127.0.0.1:<port>/?token=...`（含进程级一次性 token query）。
+// 取最后一次匹配；URL 行可能带 ` (LAN: ...)` 后缀——`[^\s]+` 在空格处停，
+// 只捕获 loopback URL。任何失败静默返回 null。
+function discoverLaunchUrlFromLog(byteOffset) {
+  const raw = readLogSince(byteOffset);
+  if (raw === '') return null;
+  const re = /dsh\s*web:\s*(https?:\/\/[^\s]+)/gi;
+  let found = null;
+  let m;
+  while ((m = re.exec(raw)) !== null) found = m[1];
+  return found;
+}
+
+// M13：等待 launchUrl 出现（写 run 记录前调用）。动态端口场景端口行已出现
+// （端口就是从该行解析的）；固定端口场景 URL 行在 loader settled 后才打印、
+// 可能晚于 HTTP 就绪——短重试最多 timeoutMs（默认 5000，间隔 500ms）兜底。
+async function captureLaunchUrl(logStartBytes, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const url = discoverLaunchUrlFromLog(logStartBytes);
+    if (url !== null) return url;
+    if (Date.now() >= deadline) return null;
+    await sleep(500);
   }
 }
 
@@ -1306,6 +1538,19 @@ function filterAdoptedExtraArgs(args) {
   return out;
 }
 
+// 清洗本地路径：去除首尾双引号/单引号/空白，去除末尾反斜杠/斜杠（避免 Windows 载体转义 \" 崩溃）
+function sanitizeCustomPath(raw) {
+  if (typeof raw !== 'string') return '';
+  let s = raw.trim();
+  while ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  if (!/^[A-Za-z]:[\\/]$/.test(s) && s.length > 1) {
+    s = s.replace(/[\\/]+$/, '');
+  }
+  return s;
+}
+
 function validateStartPayload(payload) {
   const p = payload || {};
   // host：必须为 127.0.0.1（缺省值可被 DSH_MANAGER_HOST 覆盖[仅 TEST_MODE]，覆盖后仍须为回环）
@@ -1331,6 +1576,28 @@ function validateStartPayload(payload) {
   if (typeof profile !== 'string' || !/^[A-Za-z0-9_-]+$/.test(profile)) {
     throw new AppError('BAD_REQUEST', `profile 仅允许字母数字-_（收到: ${JSON.stringify(profile)}）`);
   }
+  // launchMode：默认 'global'，允许 'global' | 'npx' | 'source'
+  let launchMode = p.launchMode !== undefined ? p.launchMode : 'global';
+  if (typeof launchMode !== 'string' || !['global', 'npx', 'source'].includes(launchMode)) {
+    throw new AppError('BAD_REQUEST', `launchMode 仅允许 'global'|'npx'|'source'（收到: ${JSON.stringify(launchMode)}）`);
+  }
+  // customPath：仅当 launchMode === 'source' 时必须为本机存在的目录或文件路径
+  let customPath = p.customPath !== undefined ? p.customPath : '';
+  if (typeof customPath !== 'string') {
+    throw new AppError('BAD_REQUEST', `customPath 必须是字符串（收到: ${JSON.stringify(customPath)}）`);
+  }
+  if (launchMode === 'source') {
+    const cleaned = sanitizeCustomPath(customPath);
+    if (!cleaned) {
+      throw new AppError('BAD_REQUEST', 'source 模式下必须指定 customPath（本地源码目录或 bin.js 路径）');
+    }
+    if (!fs.existsSync(cleaned)) {
+      throw new AppError('BAD_REQUEST', `指定的本地源码路径不存在: ${cleaned}`);
+    }
+    customPath = cleaned;
+  } else {
+    customPath = sanitizeCustomPath(customPath);
+  }
   // extraArgs：白名单
   let extraArgs = p.extraArgs !== undefined ? p.extraArgs : [];
   const va = validateExtraArgs(extraArgs);
@@ -1339,7 +1606,7 @@ function validateStartPayload(payload) {
   }
   // 注：原 windowsHide（显示/隐藏 dsh 控制台窗口）字段已移除——实测核验 detached 下
   // 不生效（Windows DETACHED_PROCESS 语义，dsh 始终无控制台），见 design §6.3 第 5 步。
-  return { host, port, profile, extraArgs: va.args };
+  return { host, port, profile, launchMode, customPath, extraArgs: va.args };
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,6 +1614,7 @@ function validateStartPayload(payload) {
 // ---------------------------------------------------------------------------
 async function computeStatus() {
   const rec = readRunRecord();
+  let readiness;
   if (rec) {
     if (!pidAlive(rec.pid)) {
       log('run 记录指向的 PID 不存在，清理残留记录');
@@ -1355,11 +1623,20 @@ async function computeStatus() {
       // 可选 PID 校验：命令行不含 dsh/bin 关键字，疑似 PID 复用，清记录防误判
       log('PID 校验未通过（疑似 PID 复用），清理残留记录');
       removeRunRecordSafe();
+    } else if ((readiness = readReadiness(rec))) {
+      if (rec.port === 0) {
+        rec.port = readiness.port;
+        rec.launchUrl = discoverLaunchUrlFromLog(rec.logStartBytes);
+        writeRunRecord(rec);
+      }
+      return { state: readiness.state === 'ready' ? 'running' : 'starting', rec, readiness };
     } else if (rec.port === 0) {
       // M4 动态端口占位：尝试从日志（spawn 偏移之后）回填实际端口；失败保持 starting
       const actual = discoverPortFromLog(rec.logStartBytes);
       if (actual !== null) {
         rec.port = actual;
+        // M13：旧记录可能缺 launchUrl（升级前写入）——顺带从日志补齐（无则保持 null）
+        if (typeof rec.launchUrl !== 'string') rec.launchUrl = discoverLaunchUrlFromLog(rec.logStartBytes);
         writeRunRecord(rec);
         log(`动态端口已从日志回填: ${actual}`);
         const probe = await httpProbe(rec.port, 1500);
@@ -1394,8 +1671,14 @@ function buildResult(state, rec, external) {
     pid: pid || null,
     port,
     url: port ? `http://127.0.0.1:${port}` : null,
+    // M13（§2.1.1 B1）：dsh ≥ 0.1.2 起裸 URL 打开会 401，扩展「打开 Web UI」需
+    // 携带 token；launchUrl 仅 managed 且日志捕获到时返回（含 token，§12.3 边界），
+    // external/adopted/未捕获为 null（扩展回退裸 URL）。
+    launchUrl: !isExternal && rec && typeof rec.launchUrl === 'string' && rec.launchUrl.length > 0 ? rec.launchUrl : null,
     version: rec && rec.version ? rec.version : 'unknown',
     startedAt: rec && Number.isInteger(rec.startedAt) ? rec.startedAt : null,
+    launchMode: !isExternal && rec ? (rec.launchMode || 'global') : null,
+    customPath: !isExternal && rec ? (rec.customPath || '') : null,
     lifecycle: false, // M2：running 时探测 /_lifecycle/health 可达才置 true（其余状态恒 false）
     health: null, // M2：lifecycle:true 时填充富状态；否则恒 null
     logFile: LOG_FILE,
@@ -1424,8 +1707,14 @@ async function actionPing() {
 }
 
 async function actionStatus() {
-  const { state, rec, external } = await computeStatus();
+  const { state, rec, external, readiness } = await computeStatus();
   const result = buildResult(state, rec, external);
+  if (state === 'running' && readiness) {
+    result.lifecycle = true;
+    result.health = { ok: true, pid: readiness.pid, port: readiness.port,
+      uptimeMs: Math.max(0, Date.now() - readiness.startedAt), nodeVersion: readiness.nodeVersion };
+    return result;
+  }
   // M2：仅 running 探测 health（1.5s 超时，失败静默 false）；其余状态保持默认 false/null
   if (state === 'running' && rec && Number.isInteger(rec.port)) {
     const health = await getHealth(rec.port, 1500);
@@ -1455,6 +1744,7 @@ async function startDshCore(v, adoptedReplay) {
   let child = null;
   let bin = null;
   let version = 'unknown';
+  let readyWatch = null;
   try {
     // 锁内复查：防与其他宿主竞态双开（记录存在且 PID 存活即视为已在运行/启动中）
     const cur = readRunRecord();
@@ -1474,17 +1764,16 @@ async function startDshCore(v, adoptedReplay) {
           : `端口 ${v.port} 已被其他程序占用`);
       }
     }
-    // 解析启动器（DSH_BIN_STUB -> 环境 prefix -> APPDATA npm -> npm prefix -g -> where dsh）
-    bin = resolveDshBin();
-    if (!bin) {
-      throw new AppError('DSH_NOT_FOUND', '未检测到 dsh 安装。请先执行 npm i -g @deepseek-ai/dsh，然后重试；可运行 npm prefix -g 查看 npm 全局前缀。');
-    }
-    // 版本检查（非致命）
-    version = getDshVersion(bin);
+    // 解析启动器规范（根据 launchMode: global | npx | source 解析 exe, args, binPath, version）
+    const launchSpec = resolveLaunchSpec(v);
+    bin = launchSpec.binPath;
+    version = launchSpec.version;
+    v = { ...v, launchId: randomBytes(16).toString('hex'), launchStartedAt: Date.now() };
+    readyWatch = watchReadiness();
     // 记录 spawn 时刻的日志字节偏移（LOG_FILE 可能尚不存在 -> 0）
     try { logStartBytes = fs.statSync(LOG_FILE).size; } catch (e) { logStartBytes = 0; }
     // spawn（POSIX 直接 spawn；Windows 隐藏控制台载体，见 spawnDsh 注释）
-    child = spawnDsh(bin, v);
+    child = spawnDsh(launchSpec, v);
     if (!child || !child.pid) {
       throw new AppError('INTERNAL', IS_WIN
         ? 'dsh 载体（wscript）启动失败，未获得进程'
@@ -1506,39 +1795,60 @@ async function startDshCore(v, adoptedReplay) {
     if (v.port === 0) {
       const deadline = Date.now() + 30000;
       for (;;) {
-        targetPort = discoverPortFromLog(logStartBytes);
+        const signal = readReadiness({ ...v, binPath: bin });
+        targetPort = signal ? signal.port : discoverPortFromLog(logStartBytes);
         if (targetPort !== null) break;
         if (Date.now() >= deadline) break;
-        await sleep(500);
+        await readyWatch.wait(500);
       }
       if (targetPort === null) {
         // M5.5：尽力回写占位记录（port 0，status 自愈回填），恢复失败期可停止性
-        writeBestEffortRecord(v, bin, version, null, 0, logStartBytes, adoptedReplay, child);
+        writeBestEffortRecord(v, bin, version, null, 0, logStartBytes, adoptedReplay, child, launchSpec);
         throw new AppError('START_TIMEOUT', 'dsh 在 30 秒内未报告动态端口（--port 0），进程已保留，请查看日志', { needLogTail: true });
       }
       log('动态端口已发现: ' + targetPort);
     }
-    // 轮询探活（500ms 间隔，最长 30s）；超时 -> START_TIMEOUT + logTail（不杀进程）
-    const ready = await pollPortReady(targetPort, 30000, 500);
+    // 轮询探活（500ms 间隔；npx 首次冷下载放宽至 60s，常规 30s）；超时 -> START_TIMEOUT + logTail（不杀进程）
+    const timeoutMs = (launchSpec && launchSpec.launchMode === 'npx') ? 60000 : 30000;
+    const deadline = Date.now() + timeoutMs;
+    let readiness = null;
+    let ready = false;
+    do {
+      readiness = readReadiness({ ...v, port: targetPort, binPath: bin });
+      if (readiness) ready = readiness.state === 'ready';
+      else ready = await httpProbe(targetPort, 1200);
+      if (ready) break;
+      await readyWatch.wait(Math.max(1, Math.min(500, deadline - Date.now())));
+    } while (Date.now() < deadline);
     if (!ready) {
       // M5.5：尽力回写记录，让实例仍可经扩展停止（若端口在听可反查到 pid）
-      writeBestEffortRecord(v, bin, version, null, targetPort, logStartBytes, adoptedReplay, child);
-      throw new AppError('START_TIMEOUT', `dsh 在 30 秒内未就绪（端口 ${targetPort} 无响应），进程已保留，请查看日志`, { needLogTail: true });
+      writeBestEffortRecord(v, bin, version, null, targetPort, logStartBytes, adoptedReplay, child, launchSpec);
+      const extraTip = (launchSpec && launchSpec.launchMode === 'npx')
+        ? '（NPX 模式首次运行需联网下载依赖，可能耗时较长）'
+        : '';
+      throw new AppError('START_TIMEOUT', `dsh 在 ${Math.round(timeoutMs / 1000)} 秒内未就绪（端口 ${targetPort} 无响应）${extraTip}，进程已保留，请查看日志`, { needLogTail: true });
     }
     // M5.5 Windows：端口就绪后反查真实 PID（载体链路下 wscript 的 pid 不是 dsh 的 pid）
-    let pid = child.pid;
-    if (IS_WIN) {
+    let pid = readiness ? readiness.pid : child.pid;
+    if (IS_WIN && !readiness) {
       pid = await findPidByPortRetry(targetPort);
       if (!pid) {
         throw new AppError('INTERNAL', `dsh 已就绪（端口 ${targetPort}）但未能解析其 PID（端口表反查失败），实例已保留运行，请查看日志或手动停止`, { needLogTail: true });
       }
       log(`载体启动完成，dsh PID 经端口表反查: ${pid}`);
     }
-    // 写 run 记录（原子）与冗余 pid 文件（锁内，M5.5）
-    const rec = makeRunRecord(v, bin, version, pid, targetPort, logStartBytes, adoptedReplay);
+    // 写 run 记录（原子）与冗余 pid 文件（锁内，M5.5）。
+    // M13：写记录前捕获完整启动 URL 行（含 token query，§6.2/F5）——固定端口场景
+    // URL 行在 loader settled 后才打印、可能晚于 HTTP 就绪，captureLaunchUrl 短重试
+    // 兜底（5s）；动态端口场景端口行已出现，首次即命中。捕获失败不阻塞启动
+    // （launchUrl=null，扩展回退裸 URL）。adopted 重放同样捕获本进程新打印的 URL
+    // （新进程新 token，不是复制旧记录，§12.3）。
+    const launchUrl = await captureLaunchUrl(logStartBytes);
+    const rec = makeRunRecord(v, bin, version, pid, targetPort, logStartBytes, adoptedReplay, launchUrl, launchSpec);
     writeRunRecord(rec);
     writePidFile(pid);
   } finally {
+    if (readyWatch) readyWatch.close();
     releaseLock(); // M5.5：锁保持到记录写入完成（防启动窗口并发双开，design §6.3 第 7 步）
   }
   return buildResult('running', readRunRecord());
@@ -1550,7 +1860,7 @@ async function startDshCore(v, adoptedReplay) {
 //   Windows：载体链路 pid 未知——port 已知时经端口表反查；port 未知（动态端口
 //   未报告）时经进程表匹配 bin+`--port 0`（尽力而为）；匹配失败仅记日志——
 //   实例可能仍在运行，刷新 popup 后可按 external「接管」停止。
-function writeBestEffortRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay, child) {
+function writeBestEffortRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay, child, launchSpec = null) {
   if (IS_WIN) {
     let tpid = port > 0 ? findPidByPort(port) : null;
     if (!tpid) tpid = findDshPidByCmdline(bin);
@@ -1558,13 +1868,13 @@ function writeBestEffortRecord(v, bin, version, pid, port, logStartBytes, adopte
       log(`失败路径未能定位 dsh 进程（port=${port}）——实例可能仍在运行，刷新 popup 后可「接管」`);
       return;
     }
-    writeRunRecord(makeRunRecord(v, bin, version, tpid, port, logStartBytes, adoptedReplay));
+    writeRunRecord(makeRunRecord(v, bin, version, tpid, port, logStartBytes, adoptedReplay, null, launchSpec));
     writePidFile(tpid);
     log(`失败路径已尽力回写记录 pid=${tpid} port=${port}`);
     return;
   }
   if (child && child.pid) {
-    writeRunRecord(makeRunRecord(v, bin, version, child.pid, port, logStartBytes, adoptedReplay));
+    writeRunRecord(makeRunRecord(v, bin, version, child.pid, port, logStartBytes, adoptedReplay, null, launchSpec));
     writePidFile(child.pid);
     log(`失败路径已回写记录 pid=${child.pid} port=${port}`);
   }
@@ -1573,10 +1883,11 @@ function writeBestEffortRecord(v, bin, version, pid, port, logStartBytes, adopte
 // 进程表匹配：bin 路径 + `--port 0` 的存活 node 进程（动态端口未报告时的尽力反查；
 // 同 bin 同 `--port 0` 的外部实例才可能误配，且写记录前锁内已复查无记录，风险可控）
 function findDshPidByCmdline(bin) {
+  const searchKey = (typeof bin === 'string' && bin.startsWith('npx:')) ? '@deepseek-ai/dsh' : String(bin);
   for (const p of listNodeProcesses()) {
     if (!pidAlive(p.pid)) continue;
     const cmd = p.cmdline || '';
-    if (!cmd.includes(String(bin))) continue;
+    if (!cmd.includes(searchKey)) continue;
     if (!/(?:^|\s)--port(?:=|\s+)0(?=\s|$)/.test(cmd)) continue;
     if (!pidLooksLikeDsh(p.pid, bin)) continue;
     return p.pid;
@@ -1593,8 +1904,12 @@ async function findPidByPortRetry(port) {
 }
 
 // 构造 run 记录（M5.5：pid/port 在启动流程后期才确定——端口就绪 + 端口表反查后写入；
-// 动态端口场景 port 恒为实际端口，不再有 0 占位期）
-function makeRunRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay) {
+// 动态端口场景 port 恒为实际端口，不再有 0 占位期。
+// M13：launchUrl = 完整启动 URL 行（含 token query，§6.2/F5/§12.3），未捕获为 null）
+function makeRunRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay, launchUrl = null, launchSpec = null) {
+  const cmdline = launchSpec
+    ? [launchSpec.exe, ...launchSpec.args].join(' ')
+    : [process.execPath, bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs].join(' ');
   return {
     pid,
     port,
@@ -1602,12 +1917,16 @@ function makeRunRecord(v, bin, version, pid, port, logStartBytes, adoptedReplay)
     logStartBytes,
     host: v.host,
     profile: v.profile,
+    launchMode: v.launchMode || 'global',
+    customPath: v.customPath || '',
     startedAt: Date.now(),
+    ...(v.launchId ? { launchId: v.launchId, launchStartedAt: v.launchStartedAt } : {}),
     version,
     binPath: bin,
     extraArgs: v.extraArgs,
+    launchUrl,
     ...(adoptedReplay ? { adopted: true } : {}),
-    cmdline: [process.execPath, bin, '--profile', v.profile, '--host', v.host, '--port', String(v.port), ...v.extraArgs].join(' '),
+    cmdline,
   };
 }
 
@@ -1717,37 +2036,47 @@ async function actionRestart(payload) {
     // 未在运行：restart 退化为 start（按请求 payload）
     return actionStart(payload);
   }
-  // 先 stop（含优雅尝试），等待端口关闭（最长 10s，stopCore 内部处理）；method 不上报（restart 仍是 start 语义）
-  await stopCore(rec);
-  // 重启参数 = 请求 payload 显式字段优先，run 记录回退（2026-08-24 修复）：
-  // 原实现以记录为准、完全忽略 payload —— 协议 §6.2 声明 port/profile 为 start/restart
-  // 用，popup 在「设置改端口/改 profile 后点重启」时携带新值，却被丢弃，导致重启仍起旧端口。
-  // 现语义：payload 显式给出 host/port/profile/extraArgs 时以 payload 为准（非 adopted 的
-  // extraArgs 仍走 §12.1 白名单），未给出时回退 run 记录（面板空 payload / 旧客户端行为不变；
-  // M4 `--port 0` 血统的 `requestedPort===0 → 0` 语义保留）。
+
+  // 1. 【原子预检阶段（Pre-flight Check，先检后杀）】
+  // 在杀掉旧进程前，先组装待重启参数，并调用 validateStartPayload 与 resolveLaunchSpec 进行预检。
+  // 若新配置有误（如非法模式、路径不存在、源码缺少 bin 等），在此处直接抛错拒绝，旧服务 rec 绝不被杀！
   const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
-  if (rec.adopted === true) {
-    // 接管血统（§6.7）：extraArgs 恒源自接管时的本机进程表（黑名单过滤，不走白名单），
-    // 生命周期参数（host/port/profile）默认记录值，payload 显式给出时以 payload 为准
-    // ——但必须先过 validateStartPayload 白名单校验（payload 属扩展输入通道，§12.1）。
+  let validatedParams;
+  const isAdopted = rec.adopted === true;
+
+  if (isAdopted) {
     const life = validateStartPayload({
       host: p.host !== undefined ? p.host : (rec.host || DEFAULT_HOST),
       port: p.port !== undefined ? p.port : rec.port,
       profile: p.profile !== undefined ? p.profile : (rec.profile || 'web'),
+      launchMode: p.launchMode !== undefined ? p.launchMode : (rec.launchMode || 'global'),
+      customPath: p.customPath !== undefined ? p.customPath : (rec.customPath || ''),
     });
-    return startDshCore({
+    validatedParams = {
       ...life,
       extraArgs: filterAdoptedExtraArgs(Array.isArray(rec.extraArgs) ? rec.extraArgs : []),
-    }, true);
+    };
+    resolveLaunchSpec(validatedParams); // 预检寻径，不通过立即抛错
+  } else {
+    const startPayload = {
+      host: p.host !== undefined ? p.host : (rec.host || DEFAULT_HOST),
+      // M4：--port 0 血统按动态端口语义重放（OS 重新分配），其余按记录端口
+      port: p.port !== undefined ? p.port : (rec.requestedPort === 0 ? 0 : rec.port),
+      profile: p.profile !== undefined ? p.profile : (rec.profile || 'web'),
+      launchMode: p.launchMode !== undefined ? p.launchMode : (rec.launchMode || 'global'),
+      customPath: p.customPath !== undefined ? p.customPath : (rec.customPath || ''),
+      extraArgs: p.extraArgs !== undefined ? p.extraArgs : (Array.isArray(rec.extraArgs) ? rec.extraArgs : []),
+    };
+    validatedParams = validateStartPayload(startPayload);
+    resolveLaunchSpec(validatedParams); // 预检寻径，不通过立即抛错
   }
-  const startPayload = {
-    host: p.host !== undefined ? p.host : (rec.host || DEFAULT_HOST),
-    // M4：--port 0 血统按动态端口语义重放（OS 重新分配），其余按记录端口
-    port: p.port !== undefined ? p.port : (rec.requestedPort === 0 ? 0 : rec.port),
-    profile: p.profile !== undefined ? p.profile : (rec.profile || 'web'),
-    extraArgs: p.extraArgs !== undefined ? p.extraArgs : (Array.isArray(rec.extraArgs) ? rec.extraArgs : []),
-  };
-  return actionStart(startPayload);
+
+  // 2. 【预检通过，安全停机】
+  // 先 stop（含优雅尝试），等待端口关闭（最长 10s，stopCore 内部处理）
+  await stopCore(rec);
+
+  // 3. 【拉起新进程】
+  return startDshCore(validatedParams, isAdopted);
 }
 
 // 外部实例接管（design §6.7）：pid+port 双重匹配 -> 回写 run 记录 -> running/managed

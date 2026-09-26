@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Whalekeeper · DSH Manager</title>
+  <title>Whalekeeper</title>
   <!-- 引入官方原生 SVG 资产库与设计系统 -->
   <script src="dsh-assets-library.js"></script>
   <link rel="stylesheet" href="popup.css">
@@ -11,6 +11,11 @@
 <body>
   <div class="popup-frame w360">
     <div class="v6-box">
+      <!-- 官方原厂 HeroGlow 柔蓝环境光晕 (Figma 313:14109 全局居中常驻) -->
+      <div class="dsh-hero-glow-wrap" aria-hidden="true">
+        <span data-dsh-icon="HeroGlow"></span>
+      </div>
+
       <!-- 左侧 44px 极窄 Rail 导轨 -->
       <nav class="v6-rail" aria-label="快捷导航">
         <button id="v6-r-dash" class="v6-rail-btn active" title="服务监控概览" aria-label="服务监控概览">
@@ -39,8 +44,17 @@
             <span class="brand-title">Whalekeeper</span>
             <span data-dsh-icon="BrandBadge" data-text="DSH WEB"></span>
           </div>
-          <span id="port-text" class="brand-tag">3080</span>
+          <span id="port-text" class="brand-tag" title="点击复制服务地址">3080</span>
         </header>
+
+        <!-- 待重启提示微横幅（配置变更且正在运行时展示） -->
+        <div id="restart-pending-banner" class="restart-pending-banner hidden" role="status">
+          <div class="rpb-content">
+            <span class="rpb-dot" aria-hidden="true"></span>
+            <span id="rpb-text" class="rpb-text">配置已变更，需重启生效</span>
+          </div>
+          <button type="button" id="btn-banner-restart" class="rpb-btn">立即重启</button>
+        </div>
 
         <!-- 状态卡 (运行中 / 健康度 / PID / uptime) -->
         <div id="statuscard" class="statuscard">
@@ -55,8 +69,9 @@
         </div>
 
         <!-- 主入口：打开 DSH Web UI -->
-        <button id="btn-open" class="btn ghost" style="width:100%;height:32px;margin-bottom:6px" disabled>
+        <button id="btn-open" class="btn ghost btn-open-dsh" style="width:100%;height:32px;margin-bottom:6px" disabled>
           <span>打开 DSH Web UI</span>
+          <span data-dsh-icon="IconChevronRightOutline14" data-size="12" class="open-icon-arrow" style="margin-left:4px;opacity:0.7"></span>
         </button>
 
         <!-- 运维操作行 -->
@@ -99,7 +114,10 @@
         <!-- 底栏：优雅停机感知 + 查看日志入口 -->
         <footer class="foot">
           <span id="hint" class="hint">正在获取 dsh 状态…</span>
-          <button id="btn-logs" class="link" type="button">查看日志</button>
+          <button id="btn-logs" class="link" type="button">
+            <span data-dsh-icon="IconBrowseOutline16" data-size="12" style="margin-right:3px;display:inline-flex;vertical-align:-1px"></span>
+            <span>查看日志</span>
+          </button>
         </footer>
       </main>
 
@@ -142,6 +160,24 @@
             <div class="s-field-row">
               <span>服务端口</span>
               <input id="set-port" class="s-field-input" type="number" min="0" max="65535" step="1" value="3080" style="width:68px">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div class="s-field-row">
+                <span>启动方式</span>
+                <select id="set-launch-mode" class="s-field-input s-field-select" style="width:116px">
+                  <option value="global">全局安装 (dsh)</option>
+                  <option value="npx">NPX 免安装</option>
+                  <option value="source">本地源码路径</option>
+                </select>
+              </div>
+              <div id="set-launch-desc" class="s-field-desc">使用本地全局安装的 dsh 命令行启动</div>
+            </div>
+            <div id="set-source-wrap" class="hidden" style="display:flex;flex-direction:column;gap:3px">
+              <div class="s-field-row">
+                <span>源码 / 脚本路径</span>
+                <input id="set-custom-path" class="s-field-input" type="text" placeholder="例如 D:\deepseek-harness" style="width:140px">
+              </div>
+              <div class="s-field-desc">本地仓库根目录（含 lib/bin.js）或指定 bin.js 路径</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:3px">
               <div class="s-field-row">

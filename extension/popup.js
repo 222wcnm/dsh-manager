@@ -1,6 +1,6 @@
 'use strict';
 
-// DSH Manager — popup 逻辑
+// Whalekeeper — popup 逻辑
 //
 // 行为（docs/design.md §8.2）：
 //   1. 打开即调 status，随后每 2s 轮询（popup 关闭自动停止）；
@@ -33,6 +33,8 @@ const ERROR_TEXTS = {
 
 const DEFAULT_SETTINGS = {
   port: 3080, profile: 'web', autoOpen: true, badgeInterval: 30, theme: 'follow-webui',
+  launchMode: 'global', // 'global' | 'npx' | 'source'
+  customPath: '',       // 本地源码目录或 bin.js 路径
   attention: true, attentionDone: true,
   // M11 会话感知(design §8.10 演进):完成会话保留时长(分钟)——刚完成的会话在此
   // 时间窗内显示,过期/已读后从列表消失;5~1440,0 = 从不显示已完成。
@@ -41,6 +43,18 @@ const DEFAULT_SETTINGS = {
   // 字符语义锁定；与 background.js DEFAULT_SETTINGS 保持一致（防 onInstalled 合并丢弃）
   colorMap: DSHColors.DEFAULT_COLOR_MAP,
 };
+
+// 清洗本地路径输入：剥除首尾双引号/单引号/空格，去除尾部反斜杠（防 Windows 命令行转义问题）
+function sanitizePathInput(val) {
+  let s = (val || '').trim();
+  while ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  if (!/^[A-Za-z]:[\\/]$/.test(s) && s.length > 1) {
+    s = s.replace(/[\\/]+$/, '');
+  }
+  return s;
+}
 
 // 操作进行中的按钮文案与阶段说明（点击反馈）
 const ACTION_LABELS = {
@@ -168,13 +182,26 @@ async function init() {
   await loadSettings();
   await loadReadSessions(); // M11：已读记录（本地展示层）
   renderSettingsForm();
+  initSessionsMirror(); // M12：storage 镜像桥（面板 SSE → SW → sessionsCache → popup）
   await refreshStatus();
   refreshSessions(); // M9：会话摘要（只读，失败静默降级）
   pollTimer = setInterval(refreshStatus, 2000);
   tickTimer = setInterval(() => {
     renderUptime();
     renderProgress(); // 每秒刷新操作耗时
+    if (pending) renderStatusCard(); // 操作在途时每秒刷新状态卡内的已耗时
   }, 1000);
+}
+
+// M12：订阅镜像变化（面板 SSE 事件流经 SW 写 sessionsCache）+ 初始载入
+function initSessionsMirror() {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.sessionsCache) return;
+    applyMirrorSessions(changes.sessionsCache.newValue || {});
+  });
+  chrome.storage.local.get({ sessionsCache: {} }, (d) => {
+    applyMirrorSessions((d && d.sessionsCache) || {});
+  });
 }
 
 function bindEvents() {
@@ -182,7 +209,7 @@ function bindEvents() {
   $('v6-r-dash').addEventListener('click', () => switchV6('dash'));
   $('v6-r-sess').addEventListener('click', () => switchV6('sess'));
   $('v6-r-sett').addEventListener('click', () => switchV6('sett'));
-  $('btn-sess-open').addEventListener('click', openWebUI);
+  $('btn-sess-open').addEventListener('click', () => openWebUI());
 
   // 兼容旧按钮 ID 契约
   const btnSett = $('btn-settings');
@@ -196,14 +223,47 @@ function bindEvents() {
   $('btn-stop').addEventListener('click', () => doAction('stop'));
   $('btn-restart').addEventListener('click', () => doAction('restart'));
   $('btn-adopt').addEventListener('click', () => doAction('adopt'));
-  $('btn-open').addEventListener('click', openWebUI);
+  $('btn-open').addEventListener('click', () => openWebUI());
   $('btn-copy-log').addEventListener('click', copyLog);
   $('btn-logs').addEventListener('click', openLogs);
+  const btnBannerRestart = $('btn-banner-restart');
+  if (btnBannerRestart) {
+    btnBannerRestart.addEventListener('click', () => doAction('restart'));
+  }
+
+  const portText = $('port-text');
+  if (portText) {
+    portText.addEventListener('click', async () => {
+      const port = (portText.textContent || '').trim();
+      if (!port || port === '-' || isNaN(Number(port))) return;
+      const url = `http://127.0.0.1:${port}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast(`已复制 ${url}`, 'success');
+      } catch (_) {
+        showToast(`服务地址: ${url}`, 'info');
+      }
+    });
+  }
 
   // 输入时清除无效反馈
   $('set-port').addEventListener('input', () => clearFieldInvalid('set-port'));
   $('set-badge').addEventListener('input', () => clearFieldInvalid('set-badge'));
   $('set-retention').addEventListener('input', () => clearFieldInvalid('set-retention')); // M11
+  const launchModeEl = $('set-launch-mode');
+  if (launchModeEl) {
+    launchModeEl.addEventListener('change', () => {
+      clearFieldInvalid('set-custom-path');
+      updateLaunchModeUI();
+    });
+  }
+  const customPathEl = $('set-custom-path');
+  if (customPathEl) {
+    customPathEl.addEventListener('input', () => clearFieldInvalid('set-custom-path'));
+    customPathEl.addEventListener('blur', () => {
+      customPathEl.value = sanitizePathInput(customPathEl.value);
+    });
+  }
 
   // 外观行（M6）：点选即生效（写入 settings.theme + 即时应用，不弹 toast、不触发 saveSettings）
   document.querySelectorAll('.theme-cube').forEach((btn) => {
@@ -431,6 +491,19 @@ async function refreshSessions() {
   applySessions();
 }
 
+// M12 镜像桥（design §8.10.1）：面板 SSE 事件流 → SW storage.sessionsCache →
+// popup storage.onChanged 即时渲染（<500ms）。native sessions 快照仍作保底
+// （无 dsh 标签/镜像缺失时）；两者同源同构，后写赢。
+function applyMirrorSessions(cache) {
+  const port = detail && typeof detail.port === 'number' && Number.isFinite(detail.port) ? detail.port : null;
+  if (!port) return; // 状态未就绪/动态端口未回填：等 native 快照
+  if (state !== 'running' && state !== 'external') return;
+  const entry = cache && typeof cache === 'object' ? cache[String(port)] : null;
+  if (!entry || !Array.isArray(entry.items)) return;
+  sessionsData = { available: true, items: entry.items };
+  applySessions();
+}
+
 // 会话区渲染：折叠头计数 + 列表 / 空态 / 降级提示（§8.10 与 V6 导轨联动）。
 // M11：四态感知 —— waiting > working/已停止(有子代理) > 已完成(新鲜且未已读)；
 // idle 不渲染；已完成行 hover 出现「已读」；子代理行作为父行嵌套树行（进行中）。
@@ -595,6 +668,12 @@ function renderSessionUnit(item) {
     }
   }
 
+  row.style.cursor = 'pointer';
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('.btn-mark-read, .inline-undo-pill')) return;
+    openWebUI(item.sessionId ? `/#/chat/${item.sessionId}` : '/');
+  });
+
   row.appendChild(leftWrap);
   row.appendChild(rightWrap);
   unit.appendChild(row);
@@ -746,6 +825,8 @@ async function doAction(action) {
     : {
         profile: settings ? settings.profile : DEFAULT_SETTINGS.profile,
         port: settings ? settings.port : DEFAULT_SETTINGS.port,
+        launchMode: settings ? (settings.launchMode || DEFAULT_SETTINGS.launchMode) : DEFAULT_SETTINGS.launchMode,
+        customPath: settings ? (settings.customPath || '') : '',
       };
 
   let resp;
@@ -806,18 +887,111 @@ async function doAction(action) {
 }
 
 // ---------------------------------------------------------------------------
-// 打开 Web UI
+// 打开/智能定向 Web UI（Smart Tab Focus & Reuse）
+// 规则：无则新建并定位，有则定向激活（当前窗口 > 目标会话精准匹配 > 最近活跃 MRU）
 // ---------------------------------------------------------------------------
 
-function openWebUI() {
+async function openWebUI(targetPath) {
   const port = (detail && detail.port) || (settings ? settings.port : DEFAULT_SETTINGS.port);
   if (!port) return; // M4：动态端口未回填时无 URL 可开
-  chrome.tabs.create({ url: 'http://127.0.0.1:' + port + '/' });
+
+  const pathSuffix = (typeof targetPath === 'string' && targetPath) ? targetPath : '/';
+  // M13（§2.1.1 B1）：dsh ≥ 0.1.2 起裸 URL 打开会 401——新标签优先用 run 记录
+  // 捕获的 launchUrl（含 token query；§12.3 边界：仅用于打开标签，不写入
+  // storage、不显示在 UI 文本）。深链：token 是 query 参数，hash 后缀在 303
+  // 重定向后由浏览器保留（`/?token=…/#/chat/x` → 认证后 `/#/chat/x`）。
+  const bareUrl = 'http://127.0.0.1:' + port;
+  const launchBase = (detail && typeof detail.launchUrl === 'string' && detail.launchUrl.length > 0)
+    ? detail.launchUrl
+    : bareUrl;
+  const launchTarget = new URL(launchBase);
+  if (pathSuffix !== '/') launchTarget.hash = pathSuffix.slice(1);
+  const targetUrl = pathSuffix === '/' ? launchBase : launchTarget.href;
+  // 已有标签（已换取 cookie、URL 干净）的复用/跳转仍用裸 URL（避免重复走
+  // token 兑换重定向）
+  const bareTargetUrl = pathSuffix === '/' ? bareUrl : bareUrl + pathSuffix;
+
+  // DSH Web UI 的两种可能 URL 前缀
+  const prefixes = [
+    'http://127.0.0.1:' + port,
+    'http://localhost:' + port,
+  ];
+
+  try {
+    // 获取所有标签页，在 JS 中手动匹配 URL 前缀
+    // 避免 chrome.tabs.query({ url: pattern }) 的 match pattern 兼容性问题
+    const allBrowserTabs = await chrome.tabs.query({});
+    const matchedTabs = allBrowserTabs.filter(t =>
+      t.url && prefixes.some(p => t.url.startsWith(p))
+    );
+
+    if (matchedTabs.length > 0) {
+      // 获取当前操作所在窗口 ID
+      const currWin = await chrome.windows.getCurrent().catch(() => null);
+      const currentWindowId = currWin ? currWin.id : null;
+
+      // 4 级决策排序：
+      // 1. 精确会话路径匹配优先
+      // 2. 当前窗口优先
+      // 3. 最近活跃 (lastAccessed) 优先
+      matchedTabs.sort((a, b) => {
+        if (pathSuffix && pathSuffix !== '/') {
+          const aMatch = a.url && a.url.includes(pathSuffix);
+          const bMatch = b.url && b.url.includes(pathSuffix);
+          if (aMatch && !bMatch) return -1;
+          if (bMatch && !aMatch) return 1;
+        }
+        if (currentWindowId) {
+          if (a.windowId === currentWindowId && b.windowId !== currentWindowId) return -1;
+          if (b.windowId === currentWindowId && a.windowId !== currentWindowId) return 1;
+        }
+        return (b.lastAccessed || 0) - (a.lastAccessed || 0);
+      });
+
+      const bestTab = matchedTabs[0];
+
+      // 1. 激活标签页
+      await chrome.tabs.update(bestTab.id, { active: true });
+
+      // 2. 唤醒并置顶窗口（若在后台或其他显示器窗口）
+      if (bestTab.windowId) {
+        await chrome.windows.update(bestTab.windowId, { focused: true }).catch(() => {});
+      }
+
+      // 3. 特殊状态处理：
+      // 若处于 Chrome 原生网络报错页或休眠卸载态，执行唤醒重新加载
+      const isErrorPage = bestTab.url && (bestTab.url.startsWith('chrome-error://') || bestTab.status === 'unloaded' || bestTab.discarded);
+      if (isErrorPage) {
+        await chrome.tabs.reload(bestTab.id).catch(() => {});
+      } else if (pathSuffix && pathSuffix !== '/' && bestTab.url && !bestTab.url.includes(pathSuffix)) {
+        // 软路由跳转到目标会话页（已有标签已认证——用裸 URL，不带 token）
+        await chrome.tabs.update(bestTab.id, { url: bareTargetUrl }).catch(() => {});
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn('[Whalekeeper] 智能定向异常，降级为新建标签页:', e);
+  }
+
+  // 无已有标签页或异常降级：新建标签页
+  chrome.tabs.create({ url: targetUrl });
 }
 
-// 打开日志查看页（扩展页面，M3 日志查看，design §8.4）
-function openLogs() {
-  chrome.tabs.create({ url: chrome.runtime.getURL('logs.html') });
+// 打开日志查看页（智能复用已有日志 Tab，避免重复多开）
+async function openLogs() {
+  const logUrl = chrome.runtime.getURL('logs.html');
+  try {
+    const tabs = await chrome.tabs.query({ url: logUrl }).catch(() => []);
+    if (tabs && tabs.length > 0) {
+      const best = tabs[0];
+      await chrome.tabs.update(best.id, { active: true });
+      if (best.windowId) {
+        await chrome.windows.update(best.windowId, { focused: true }).catch(() => {});
+      }
+      return;
+    }
+  } catch (_) {}
+  chrome.tabs.create({ url: logUrl });
 }
 
 // ---------------------------------------------------------------------------
@@ -871,12 +1045,61 @@ function render() {
   // M9 会话区：状态变化时按现有 sessionsData 收敛显示（隐藏/提示切换）
   applySessions();
 
+  // 待重启提示微横幅（配置变更对比）
+  renderRestartBanner();
+
   // 底部提示：M2 契约 —— lifecycle:true 显示优雅停机已启用
   renderHint();
 }
 
+// 待重启提示微横幅：对比当前运行中的 detail 与 settings，检测是否需要重启生效
+function renderRestartBanner() {
+  const banner = $('restart-pending-banner');
+  if (!banner) return;
+  if (state !== 'running' || !detail || pending) {
+    banner.classList.add('hidden');
+    return;
+  }
+  const curMode = detail.launchMode || 'global';
+  const cfgMode = (settings && settings.launchMode) || DEFAULT_SETTINGS.launchMode;
+  const curPath = detail.customPath || '';
+  const cfgPath = (settings && settings.customPath) || '';
+  const curPort = detail.port;
+  const curRequestedPort = detail.requestedPort === 0 ? 0 : curPort;
+  const cfgPort = settings && settings.port;
+
+  const modeDiff = curMode !== cfgMode;
+  const pathDiff = cfgMode === 'source' && curPath !== cfgPath;
+  const portDiff = Number.isInteger(cfgPort) && curRequestedPort !== cfgPort;
+
+  if (modeDiff || pathDiff || portDiff) {
+    const modeNames = { global: '全局', npx: 'NPX', source: '本地源码' };
+    const rpbText = $('rpb-text');
+    if (rpbText) {
+      if (modeDiff) {
+        rpbText.textContent = `启动方式已修改（当前:${modeNames[curMode] || curMode} → 新选:${modeNames[cfgMode] || cfgMode}），重启生效`;
+      } else if (pathDiff) {
+        rpbText.textContent = '源码路径已修改，需重启生效';
+      } else if (portDiff) {
+        const oldPort = curRequestedPort === 0 ? '自动分配' : curRequestedPort;
+        const newPort = cfgPort === 0 ? '自动分配' : cfgPort;
+        rpbText.textContent = `端口已修改（当前:${oldPort} → 新选:${newPort}），需重启生效`;
+      }
+    }
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
 // 状态词（#state-word）文本映射（M7 状态卡）
 function stateWordText() {
+  if (pending) {
+    if (pending.action === 'restart') return '正在重启…';
+    if (pending.action === 'start') return '正在启动…';
+    if (pending.action === 'stop') return '正在停止…';
+    if (pending.action === 'adopt') return '正在接管…';
+  }
   switch (state) {
     case 'running': return '运行中';
     case 'external': return '外部实例';
@@ -915,9 +1138,21 @@ function formatCompactUptime(ms) {
 
 // 状态卡次级信息（#row2-text）文案（M7）
 function row2Text() {
+  if (pending) {
+    let text = ACTION_LABELS[pending.action].progress[pending.phase] || ACTION_LABELS[pending.action].busy;
+    if (pending.action === 'adopt' && detail && detail.pid) {
+      text += '（PID ' + detail.pid + '）';
+    }
+    const sec = Math.floor((Date.now() - pending.atMs) / 1000);
+    return text + ' · 已耗时 ' + sec + 's';
+  }
   if (state === 'running') {
     const health = detail && detail.health;
     const parts = [];
+    if (detail && detail.launchMode) {
+      const modeNames = { global: '全局', npx: 'NPX', source: '本地源码' };
+      parts.push(modeNames[detail.launchMode] || detail.launchMode);
+    }
     if (health) {
       if (health.uptimeMs) parts.push('已运行 ' + formatCompactUptime(health.uptimeMs));
     }
@@ -1154,9 +1389,30 @@ function loadReadSessions() {
   });
 }
 
+const LAUNCH_MODE_DESCS = {
+  global: '使用本地全局安装的 dsh 命令行启动',
+  npx: '使用 npx @deepseek-ai/dsh 启动（免全局安装）',
+  source: '从本地已构建源码启动；此模式暂不加载 SSH MCP',
+};
+
+function updateLaunchModeUI() {
+  const modeEl = $('set-launch-mode');
+  if (!modeEl) return;
+  const mode = modeEl.value;
+  const descEl = $('set-launch-desc');
+  if (descEl) descEl.textContent = LAUNCH_MODE_DESCS[mode] || LAUNCH_MODE_DESCS.global;
+  const wrap = $('set-source-wrap');
+  if (wrap) wrap.classList.toggle('hidden', mode !== 'source');
+}
+
 function renderSettingsForm() {
   $('set-port').value = settings.port;
   $('set-profile').value = settings.profile;
+  const mode = (settings.launchMode && ['global', 'npx', 'source'].includes(settings.launchMode))
+    ? settings.launchMode : 'global';
+  if ($('set-launch-mode')) $('set-launch-mode').value = mode;
+  if ($('set-custom-path')) $('set-custom-path').value = settings.customPath || '';
+  updateLaunchModeUI();
   $('set-autoopen').checked = !!settings.autoOpen;
   $('set-badge').value = settings.badgeInterval;
   $('set-attention').checked = settings.attention !== false; // 缺省视为开（向后兼容）
@@ -1313,6 +1569,13 @@ function saveSettings() {
   const badge = parseInt($('set-badge').value, 10);
   const retention = parseInt($('set-retention').value, 10);
   const profile = $('set-profile').value.trim();
+  const launchModeEl = $('set-launch-mode');
+  const launchMode = launchModeEl ? launchModeEl.value : 'global';
+  const customPathEl = $('set-custom-path');
+  const customPath = customPathEl ? sanitizePathInput(customPathEl.value) : '';
+  if (customPathEl && customPathEl.value !== customPath) {
+    customPathEl.value = customPath;
+  }
   const errEl = $('settings-error');
 
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -1333,10 +1596,18 @@ function saveSettings() {
     markFieldInvalid('set-retention');
     return;
   }
+  if (launchMode === 'source' && !customPath) {
+    errEl.textContent = '本地源码模式下，必须填写源码根目录或 bin.js 路径';
+    errEl.classList.remove('hidden');
+    markFieldInvalid('set-custom-path');
+    return;
+  }
 
   const next = {
     port,
     profile: profile || 'web',
+    launchMode: ['global', 'npx', 'source'].includes(launchMode) ? launchMode : 'global',
+    customPath,
     autoOpen: $('set-autoopen').checked,
     badgeInterval: badge,
     theme: settings ? settings.theme : DEFAULT_SETTINGS.theme, // 保留主题选择（M6）

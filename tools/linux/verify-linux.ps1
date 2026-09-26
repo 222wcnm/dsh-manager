@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    DSH Manager — 在 WSL Linux 发行版内跑宿主冒烟测试（tools/linux/verify-linux.ps1）
+    Whalekeeper — 在 WSL Linux 发行版内跑宿主冒烟测试（tools/linux/verify-linux.ps1）
 
 .DESCRIPTION
     M4 跨平台验证：用 WSL 发行版（默认 kali-linux）实测 host.js 的 POSIX 平台层
@@ -39,7 +39,7 @@ $repoWin = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $repoWsl = ($repoWin -replace '^([A-Za-z]):', '/mnt/$1').ToLowerInvariant() -replace '\\', '/'
 
 Write-Host '================================================'
-Write-Host (' DSH Manager — WSL Linux 冒烟验证（' + $Distro + '）')
+Write-Host (' Whalekeeper — WSL Linux 冒烟验证（' + $Distro + '）')
 Write-Host (' 仓库（WSL 路径）: ' + $repoWsl)
 Write-Host (' Node 版本        : ' + $NodeVersion)
 Write-Host '================================================'

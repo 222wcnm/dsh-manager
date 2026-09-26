@@ -1,5 +1,5 @@
 #!/bin/sh
-# DSH Manager 卸载脚本（Linux / macOS）：停止 dsh、移除浏览器宿主注册、清理数据目录。
+# Whalekeeper 卸载脚本（Linux / macOS）：停止 dsh、移除浏览器宿主注册、清理数据目录。
 #
 # 与 uninstall.ps1 同构：
 #   1. 若有 run 记录，经宿主 stop 动作停止 dsh web（复用全套防护链：
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
 done
 
 echo "================================================"
-echo " DSH Manager 卸载脚本（Linux/macOS）"
+echo " Whalekeeper 卸载脚本（Linux/macOS）"
 echo " 数据目录：$BASE_DIR"
 if [ "$KEEP_LOGS" = 1 ]; then echo " 模式：保留日志（先备份到桌面再删除）"; fi
 echo "================================================"

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    DSH Manager 卸载脚本：停止 dsh、删除注册表项、清理数据目录。
+    Whalekeeper 卸载脚本：停止 dsh、删除注册表项、清理数据目录。
 
 .DESCRIPTION
     1. 若存在 %LOCALAPPDATA%\dsh-manager\run\dsh-web.json，读取 pid 并执行
@@ -28,7 +28,7 @@ $ErrorActionPreference = 'Stop'
 $Base = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'dsh-manager'
 
 Write-Host '================================================' -ForegroundColor Cyan
-Write-Host ' DSH Manager 卸载脚本' -ForegroundColor Cyan
+Write-Host ' Whalekeeper 卸载脚本' -ForegroundColor Cyan
 Write-Host (' 数据目录：' + $Base)
 if ($KeepLogs) {
     Write-Host ' 模式：保留日志（先备份到桌面再删除）' -ForegroundColor Yellow

@@ -1,26 +1,26 @@
 # 贡献指南（CONTRIBUTING）
 
-感谢关注 DSH Manager！本文帮助新贡献者了解项目、搭建环境并安全地提交改动。
+感谢关注 Whalekeeper！本文帮助新贡献者了解项目、搭建环境并安全地提交改动。
 
 ## 项目是什么
 
-DSH Manager 是一个 Chrome/Edge 浏览器扩展 + Native Messaging 原生宿主，用于管理
+Whalekeeper 是一个 Chrome/Edge 浏览器扩展 + Native Messaging 原生宿主，用于管理
 DeepSeek Harness（dsh）的 Web 服务生命周期——在浏览器里一键启动 / 停止 / 重启
 `dsh web`（默认 `http://127.0.0.1:3080`），免开终端。M2 起附 `dsh-lifecycle` 插件：
 安装后停止走官方 dispose 优雅停机（`POST /_lifecycle/shutdown`），并提供
 `GET /_lifecycle/health` 健康端点。
 
 > 本项目是**非官方**社区工具，与 DeepSeek（深度求索）无隶属、无背书关系。详见
-> [NOTICE](../NOTICE) 与 [README](../README.md) 文末免责声明。
+> [NOTICE](NOTICE) 与 [README](README.md) 文末免责声明。
 
 ## 权威文档（改动前必读）
 
-- `docs/design.md` — 唯一规格：架构决策、dsh 事实基线（基于 `@deepseek-ai/dsh@0.1.0-rc.6`
-  逐条核验）、宿主协议、安全模型、路线图
+- `docs/design.md` — 设计规格索引；`docs/design/` 分篇保存架构、事实基线、宿主协议、
+  扩展、安全模型和路线图。修改时从索引进入对应主题文件。
 - `native-host/test/VERIFICATION.md` — M1–M2 验收报告与已知偏差清单
 - `native-host/test/manual-e2e.md` — 人工验证清单
 
-**约定：重大改动先改 `docs/design.md` 再改代码；扩展与宿主之间的协议变更必须同步设计文档与两处实现；改宿主必须补跑/新增冒烟场景。**
+**约定：重大改动先改对应主题规格再改代码；新增主题同步更新 `docs/design.md` 索引；扩展与宿主之间的协议变更必须同步规格与两处实现；改宿主必须补跑/新增冒烟场景。**
 
 ## 目录结构
 
@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File native-host\install.ps1 -DryRun   # 安
 - 扩展改动 → `chrome://extensions` 重新加载
 - 宿主或安装器改动 → 重跑 `install.ps1` 并**完全重启浏览器**（native host 注册只在浏览器启动时读取）
 
-## 下一步路线（docs/design.md §15）
+## 下一步路线（[设计路线图](docs/design/07-roadmap.md) §15）
 
 - M3：体验增强（日志查看与复制、Web UI 页面内管理面板）—— 已完成
 - M4：跨平台（macOS/Linux SIGTERM 优雅停、Firefox 运行时验证、`--port 0` 已支持）

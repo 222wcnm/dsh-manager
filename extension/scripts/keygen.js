@@ -1,6 +1,6 @@
 'use strict';
 
-// DSH Manager — 扩展 ID / manifest key 生成器
+// Whalekeeper — 扩展 ID / manifest key 生成器
 //
 // 一次性执行（项目初始化时运行一次）：
 //   node scripts/keygen.js

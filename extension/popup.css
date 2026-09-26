@@ -1,5 +1,5 @@
 /* ============================================================================
- * Whalekeeper · DSH Manager — popup.css (V6 侧边 Rail 导轨空间架构)
+ * Whalekeeper — popup.css (V6 侧边 Rail 导轨空间架构)
  * 设计规范：严格对齐 dsh Web UI 设计系统与原厂原生动效
  * ========================================================================== */
 
@@ -70,9 +70,12 @@
   --ds-transition-duration-slow: 0.6s;
 }
 
-/* 深色模式（完全对齐 dsh 官方 dsw-tokens-dark.css） */
-body[data-ds-dark-theme],
-[data-theme="dark"] {
+/* 深色模式（完全对齐 dsh 官方 dsw-tokens-dark.css）
+ * 注意：只允许 body[data-ds-dark-theme] 一个触发器（theme.js 唯一入口）。
+ * 勿再加未限定标签的 [data-theme="dark"]——它会命中设置面板月亮按钮自身的
+ * data-theme="dark"（popup.html），把整套深色令牌局部泄漏到该按钮上：
+ * 浅色主题下月亮 cube 边框变白（不可见）、图标变浅灰（M13.2 修复）。 */
+body[data-ds-dark-theme] {
   color-scheme: dark;
 
   --dsw-alias-bg-base: rgb(22, 23, 26);
@@ -146,6 +149,7 @@ body {
   background: linear-gradient(90deg, var(--dsw-static-deepseek-450) 0%, #a5b4fc 50%, var(--dsw-static-deepseek-450) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: dsh-shimmer 2.2s linear infinite;
   font-weight: 500;
@@ -157,6 +161,21 @@ body {
 }
 .is-spinning {
   animation: dsh-spin 0.8s linear infinite !important;
+}
+
+/* 6. 过渡态圆点轻脉冲（busy=starting/stopping 是秒级过渡，不做长时呼吸；M7 复盘语义） */
+@keyframes dsh-dot-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* 7. 表单无效输入抖动反馈（M2 校验；红边 + 抖动 + 聚焦） */
+@keyframes dsh-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(1px); }
 }
 
 /* 5. 导轨面板切换平滑滑入 */
@@ -183,12 +202,35 @@ body {
   display: flex;
   width: 380px;
   height: 270px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 官方原厂 HeroGlow 柔蓝环境光晕 (Figma 313:14109 全局居中常驻) */
+.dsh-hero-glow-wrap {
+  position: absolute;
+  top: 50%;
+  left: calc(46px + (100% - 46px) / 2);
+  transform: translate(-50%, -50%);
+  width: 350px;
+  height: 220px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: visible;
+}
+.dsh-hero-glow-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
 }
 
 /* 左侧 46px 极窄导轨 */
 .v6-rail {
   width: 46px;
   flex: none;
+  position: relative;
+  z-index: 2;
   background: var(--dsw-alias-bg-module-platform);
   border-right: 1px solid var(--dsw-alias-border-l1);
   display: flex;
@@ -231,6 +273,8 @@ body {
 
 /* 右侧 334px 独立视口面板 */
 .v6-panel {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   min-width: 0;
   padding: 14px 16px 12px;
@@ -238,6 +282,7 @@ body {
   flex-direction: column;
   height: 270px;
   overflow-y: auto;
+  overflow-x: hidden;
   transition: opacity .15s var(--ds-ease-in-out);
 }
 .v6-panel.hidden {
@@ -271,15 +316,85 @@ body {
   border-radius: 999px;
   padding: 1px 7px;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, transform .08s ease;
+}
+.brand-tag:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+}
+.brand-tag:active {
+  transform: scale(0.94);
+}
+
+/* 待重启提示微横幅 */
+.restart-pending-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: 8px;
+  padding: 5px 9px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.restart-pending-banner.hidden {
+  display: none !important;
+}
+.rpb-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.rpb-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-warn-primary, #eab308);
+  flex: none;
+}
+.rpb-text {
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rpb-btn {
+  flex: none;
+  background: rgba(234, 179, 8, 0.16);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 4px;
+  padding: 1.5px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.rpb-btn:hover {
+  background: rgba(234, 179, 8, 0.26);
+  border-color: rgba(234, 179, 8, 0.5);
+}
+.rpb-btn:active {
+  transform: scale(0.96);
 }
 
 /* 状态卡 */
 .statuscard {
   background: var(--dsw-alias-bg-module-platform);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
   padding: 10px 14px;
   margin-bottom: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 .sc-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .state-word { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; }
@@ -316,6 +431,7 @@ body {
 .dot.green, .dot-running { color: var(--dsw-alias-state-success-primary); }
 .dot.blue, .dot-external { color: var(--dsw-alias-state-business-primary); }
 .dot.amber, .dot-starting, .dot-stopping { color: var(--dsw-alias-state-warn-primary); }
+.dot-busy { color: var(--dsw-alias-state-warn-primary); }
 .dot.red, .dot-error { color: var(--dsw-alias-state-error-primary); }
 .dot.gray, .dot-stopped, .dot-unknown { color: var(--dsw-static-neutral-bluish-400); }
 
@@ -339,6 +455,15 @@ body {
   animation: dsh-halo-breathe 2.2s var(--ds-ease-in-out) infinite;
 }
 
+/* busy 过渡态覆盖：琥珀轻脉冲（1.2s opacity；光晕层静止——秒级过渡不呼吸）
+   注：置于 2.2s 呼吸规则之后，以覆盖 rail-dot 上的常驻 breathe 类 */
+.dot.dot-busy:after {
+  animation: dsh-dot-pulse 1.2s var(--ds-ease-in-out) infinite;
+}
+.dot.dot-busy:before {
+  animation: none;
+}
+
 /* 按钮体系 */
 .btn {
   display: inline-flex;
@@ -358,16 +483,49 @@ body {
   line-height: 20px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background .1s ease, border-color .1s ease, transform .1s var(--ds-ease-in-out);
+  transition: background .12s ease, border-color .12s ease, color .12s ease, transform .1s var(--ds-ease-in-out);
 }
 .btn:active:not(:disabled) { transform: scale(0.96); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
+
+/* 操作进行中：忙碌按钮内转圈（M1.3 点击即时反馈动效；M11.1 V6 重构时遗漏，2026-08-25 恢复） */
+.spinner {
+  display: none;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+.btn.is-pending {
+  cursor: progress;
+}
+/* 忙碌中的按钮不被 disabled 灰化：转圈即状态，保持全亮（与忙碌文案一致） */
+.btn.is-pending:disabled {
+  opacity: 1;
+}
+.btn.is-pending .spinner {
+  display: inline-block;
+  animation: dsh-spin 0.8s linear infinite;
+}
+.btn.is-pending [data-dsh-icon],
+.btn.is-pending svg {
+  display: none !important;
+}
 .btn.primary {
   background: var(--dsw-alias-button-primary-fill);
   color: var(--dsw-alias-label-primary-foreground);
   font-weight: 500;
 }
 .btn.primary:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); }
+/* 禁用态主按钮（如运行中的启动按钮）：降级为线框淡化，避免黑底抢占可用操作视觉焦点 */
+.btn.primary:disabled:not(.is-pending) {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-caption);
+  opacity: 0.55;
+}
 .btn.outline {
   background: var(--dsw-alias-bg-base);
   border-color: var(--dsw-alias-border-l2);
@@ -381,11 +539,23 @@ body {
 .btn.danger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover-danger); }
 .btn.ghost {
   background: var(--dsw-alias-bg-module-platform);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-state-business-primary);
   font-weight: 500;
 }
-.btn.ghost:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.btn.ghost:hover:not(:disabled) {
+  background: rgba(86, 134, 254, 0.08);
+  border-color: rgba(86, 134, 254, 0.3);
+}
+.btn.ghost:hover:not(:disabled) .open-icon-arrow {
+  transform: translateX(2px);
+}
+.open-icon-arrow {
+  display: inline-flex;
+  transition: transform .15s ease;
+}
 
 .v6-ops-row {
   display: flex;
@@ -401,13 +571,15 @@ body {
   justify-content: space-between;
   gap: 8px;
   border-top: 1px solid var(--dsw-alias-border-l1);
-  padding-top: 6px;
+  padding-top: 8px;
   margin-top: auto;
 }
 .foot .hint { flex: 1; min-width: 0; color: var(--dsw-alias-label-caption); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .link {
   flex: none; font-size: 12px; color: var(--dsw-alias-state-business-primary);
   background: none; border: none; font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+  display: inline-flex; align-items: center;
+  transition: background .12s ease;
 }
 .link:hover { background: var(--dsw-alias-interactive-bg-hover); }
 
@@ -531,6 +703,18 @@ body {
   outline: none;
   border-color: var(--dsw-alias-state-business-primary);
 }
+select.s-field-input {
+  cursor: pointer;
+  padding-right: 2px;
+}
+select.s-field-input option {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+/* 无效输入抖动反馈（M2 校验；M11.1 重构遗漏，重设计恢复） */
+.field-shake {
+  animation: dsh-shake 0.3s var(--ds-ease-in-out);
+}
 .s-field-desc {
   font-size: 10px;
   color: var(--dsw-alias-label-caption);
@@ -613,11 +797,8 @@ body {
   opacity: .28;
 }
 
-/* 进度与 Toast */
-.progress { margin: 6px 0; font-size: 11px; }
-.progress-bar { height: 3px; background: var(--dsw-alias-border-l1); border-radius: 2px; overflow: hidden; }
-.progress-bar-fill { height: 100%; width: 40%; background: var(--dsw-alias-state-business-primary); animation: dsh-shimmer 1.5s infinite linear; }
-.progress-text { margin-top: 3px; font-size: 10.5px; color: var(--dsw-alias-label-caption); }
+/* 进度与 Toast（操作进度与耗时已全面统一收敛至顶部状态卡次级信息行与按钮 Spinner，隐藏独立进度块杜绝高度抖动） */
+.progress { display: none !important; }
 
 .toast {
   position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
@@ -631,7 +812,7 @@ body {
   background: var(--dsw-static-red-50); color: var(--dsw-static-red-600);
   border: 1px solid rgba(236, 19, 19, 0.2); border-radius: 6px; padding: 6px; font-size: 11px; margin: 4px 0;
 }
-[data-theme="dark"] .error, body[data-ds-dark-theme] .error {
+body[data-ds-dark-theme] .error {
   background: rgba(236, 19, 19, 0.15); color: #fca5a5;
 }
 .hidden { display: none !important; }
@@ -814,3 +995,14 @@ body {
 }
 .subagent-leaf-content .session-dot { width: 8px; height: 8px; }
 .subagent-leaf-content .session-dot:after { top: 20%; right: 20%; bottom: 20%; left: 20%; }
+
+/* ---- 无障碍：用户偏好减少动效时关闭动画（M11.1 重构遗漏，2026-08-25 恢复） ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

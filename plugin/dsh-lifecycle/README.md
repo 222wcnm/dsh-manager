@@ -7,11 +7,20 @@ Windows 上也能优雅停止（否则只能 `taskkill` 硬杀）。
 
 ## 功能
 
+0.4.0 起，Whalekeeper 启动的实例会主动报告就绪状态与实际端口。插件先等待 dsh
+加载完成，再写入宿主指定的 `ready/dsh-web.json`；每 2 秒更新，正常卸载时删除。
+文件仅含启动标识、PID、端口、时间和版本，不含消息或认证 token。手工启动未提供
+宿主环境变量时不创建文件；旧宿主照常使用 HTTP 端点。协议见[宿主设计](../../docs/design/02-native-host.md) §6.9。
+
+升级须复制**完整插件目录**（包括新增的 `readiness.js` 和 `package.json`），再重启
+所管理的 dsh 实例；只替换 `index.js` 会缺少依赖文件。宿主无需重新注册。
+
 | 方法 | 路径 | 响应 | 语义 |
 |------|------|------|------|
 | `POST` | `/_lifecycle/shutdown` | `202 {"ok":true}`（重复请求 `409`） | 先刷出响应，再 `appExit(0)`：优雅 dispose 请求（触发 dsh 官方 fiber dispose，端口随之关闭）；进程退出依赖事件循环自然排空，**不保证必然退出**；DSH Manager 宿主以端口关闭为判定权威，必要时 taskkill 回退 |
 | `GET`  | `/_lifecycle/health`    | `200` JSON | 健康/富状态（下见示例） |
 | `GET`  | `/_manager/sessions`    | `200 {"ok":true,"items":[...]}` | **只读会话摘要**（M9）：live 会话的元数据行——`sessionId/title?/state/updatedAt/blank/cwd?`；**不读消息体/事件内容/凭据** |
+| `GET`  | `/_manager/events`      | `200 text/event-stream` | **SSE 会话推送**（M12，零依赖）：连接即 `snapshot`（与 sessions 完全同构，同 `buildItems` 单一派生面）；之后仅语义变化推 `upsert`/`removed` 增量（15s 心跳 `: ping` + `retry: 3000`；重连=重拿快照，无 Last-Event-ID 回放）。驱动源 = Cordis 事件总线（`session/event`/`session/created`/`session/disposed`/`agent/status`，app 级订阅接收全部会话事件——官方 apiproxy 同款模式），**事件内容绝不进入推送面，只出摘要** |
 
 health 响应：
 
@@ -67,11 +76,17 @@ curl -i -X POST http://127.0.0.1:3080/_lifecycle/shutdown
 # 只读会话摘要（M9）
 curl http://127.0.0.1:3080/_manager/sessions
 # → {"ok":true,"items":[...]}
+
+# SSE 会话推送（M12）：连接即快照，之后仅语义变化推增量
+curl -N http://127.0.0.1:3080/_manager/events
+# → retry: 3000
+# → id: 1 / event: snapshot / data: {"ok":true,"items":[...]}
+# → （15s 心跳 : ping；状态切换时 event: upsert / event: removed）
 ```
 
 ## 安装（实测语法，勿臆测）
 
-本插件基于本机安装的 `@deepseek-ai/dsh@0.1.0-rc.6` 源码逐条核验。核心事实：
+本插件基于本机安装的 `@deepseek-ai/dsh@0.1.0-rc.6` 源码逐条核验（**2026-08-26 注记：本机事实基线已漂移至 `0.1.1-rc.2`，M9/M12 所用事件契约（`session/event`·`session/created`·`session/disposed`·`agent/status`）与 webServer 行为已按 0.1.1-rc.2 源码复核，未发现破坏性差异**）。核心事实：
 
 - `dsh plugin --profile <name> <args...>` 是 **pnpm 转发器**：先初始化 profile，再在 profile
   目录里执行 `pnpm <args...>`，随后调用 `reconcilePlugins` 把装了「`dsh.bundle.patch`」声明的
@@ -128,6 +143,20 @@ dsh plugin --profile web install
     - id: dsh-lifecycle
       name: 'dsh-lifecycle'   # 或本包 checkout 的绝对路径
 ```
+
+> **rc.1 loader 装配要求（2026-09-04 真实 rc.1 实测，`native-host/test/e2e-rc1-isolated.js` 实证）**：
+> dsh ≥ 0.1.2（ESM loader）下，`name` 写裸路径（`D:/...`）报
+> `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Windows 绝对路径必须是 `file://` URL），写目录
+> 报 `ERR_UNSUPPORTED_DIR_IMPORT`——**必须指向 `file://` URL 且为具体入口文件**：
+>
+> ```yaml
+> - insert:
+>     - id: dsh-lifecycle
+>       name: 'file:///D:/Browser_extension/dsh-manager/plugin/dsh-lifecycle/index.js'
+> ```
+>
+> （路径按实际 checkout 位置替换；`pathToFileURL` 可生成标准形式。）0.1.1-rc.2 及更早
+> 版本无此要求（CJS 装载器接受裸路径），但按上述写法兼容两端。
 
 ## 安全围栏
 

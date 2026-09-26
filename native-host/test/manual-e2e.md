@@ -300,6 +300,29 @@ Get-Content "$env:USERPROFILE\.dsh\profiles\web\package.json"
 
 ## 验收汇总表
 
+### M13 二期补充（2026-09-21）
+
+- 先跑 `node --test native-host/test/readiness.test.js` 和插件 `test/*.test.js`，再跑
+  `node native-host/test/smoke.js`；场景 30 验证 HTTP 503 下固定/动态端口启动、文件
+  身份匹配、status 零 HTTP、退出清理。旧插件回退由既有场景覆盖。
+- `node native-host/test/e2e-rc1-isolated.js` 在隔离 DSH_HOME 验证真实 rc.1；可设置
+  `DSH_MANAGER_NPM_PREFIX` 指向现有 npm 前缀。测试 profile 禁用自动打开浏览器，
+  保留启动 URL 捕获与认证断言；不修改用户真实 profile。
+- 人工体验前将完整插件目录升级至 0.4.0（含 readiness.js），重启所管理实例。
+  `BASE_DIR/ready/dsh-web.json` 应与 run 记录 launchId/PID/port 一致；正常停止删除。
+  强制退出可能留下文件，但 PID 检查/租约使它失效。缺失文件不能直接判为已停止。
+
+### 本地 clone 模式补充（2026-09-23）
+
+- 本地 dsh clone 先按其 README 完成 `pnpm install`、`pnpm run build`；仅有
+  `apps/cli/lib/bin.js` 不代表所有 workspace 包已安装和构建。
+- popup 选择“本地源码路径”，填写 clone 根目录，保存并启动。预期 Web UI 在
+  30 秒内就绪；宿主 `run/source-no-ssh.patch.yml` 只含 `mcp-ssh: disabled`，
+  用户 `$DSH_HOME/profiles/web/cordis.patch.yml` 不被改写。
+- 停止后改用“全局安装”再启动，SSH MCP 应恢复为 profile 原有配置；
+  若需在源码模式使用 SSH MCP，需单独诊断其 `npx` 启动耗时。
+
+
 | # | 验收点 | 步骤 | 通过标准 |
 |---|--------|------|----------|
 | 1 | 安装 | 1 | 注册表 2 项 + manifest + host.cmd + 目录齐全 |

@@ -1,7 +1,7 @@
 'use strict';
 
 // ============================================================================
-// DSH Manager — 主题与深色模式（M6，design §8.7）
+// Whalekeeper — 主题与深色模式（M6，design §8.7）
 //
 // 零依赖 IIFE，挂 window.DSHTheme。popup 与 logs 页共用。
 //

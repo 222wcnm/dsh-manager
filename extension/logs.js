@@ -1,6 +1,6 @@
 'use strict';
 
-// DSH Manager — 日志查看页逻辑（extension/logs.html）
+// Whalekeeper — 日志查看页逻辑（extension/logs.html）
 //
 // 行为（docs/design.md §8.4）：
 //   1. 打开即经 SW 调宿主 logs 动作读取日志尾部（默认 500 行 / 256KB）；

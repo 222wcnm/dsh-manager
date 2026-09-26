@@ -1,6 +1,6 @@
 'use strict';
 // ============================================================================
-// panel.js — DSH Manager 页面内管理面板（content script，design §8.6）
+// panel.js — Whalekeeper 页面内管理面板（content script，design §8.6）
 //
 // 在 dsh Web UI 页面（127.0.0.1 / localhost 任意端口）右下角注入一个状态徽章 +
 // 可展开的管理面板：停止 / 重启 dsh web，全部动作经 SW 中转 native 宿主
@@ -554,8 +554,10 @@
       let waiting = 0;
       for (const it of data.items) {
         if (!it || typeof it !== 'object') continue;
-        if (it.state === 'working') working += 1;
-        else if (it.state === 'waiting') waiting += 1;
+        if (it.state === 'waiting') waiting += 1;
+        // M13.1 口径（design §8.10 M11 定稿）：有子代理运行的会话归入「进行中」
+        // （蓝 n）——父会话可能已 completed（「已停止」）但子代理仍在跑。
+        else if (it.state === 'working' || it.hasActiveChildren === true) working += 1;
       }
       return { working, waiting };
     } catch (_) { /* 端点不可达/被拦截：回退 */ return null; }
@@ -581,28 +583,11 @@
     chrome.runtime.sendMessage({ type: 'attention', op, kind, counts }).catch(() => { /* SW 休眠/唤醒竞态：静默，storage 引理自愈 */ });
   }
 
-  async function attTick() {
-    if (!contextAlive()) { attStop(); return; }
+  // 计数快照 → 状态机（与 attTick 共用；SSE 事件驱动时同样走这里）。
+  // 行为与 2026-08-24 定稿完全一致：idle → working →(稳定 1.2s 空态)→ done-fired；
+  // 任意 → waiting-fired（立即，优先级覆盖 done）；计数签名变化即上报。
+  function attApply(s) {
     const now = Date.now();
-    if (!document.hidden) {
-      // 页面可见：清除提醒（用户正在看），并复位状态机基线（无需端点数据）
-      if (attActive) { attActive = false; attSend('clear'); }
-      attPhase = 'idle';
-      attIdleSince = 0;
-      attLastSig = '';
-      return;
-    }
-    if (attBusy) return; // 上一 tick 的端点快取未返回：跳过（hidden 1Hz 下仅偶发）
-    attBusy = true;
-    let s;
-    try {
-      s = await attSnapshot();
-    } catch (_) {
-      s = null; // 极端分支兜底（attSnapshot 内部已自吸收，此处双保险）
-    } finally {
-      attBusy = false;
-    }
-    if (!s) s = { working: 0, waiting: 0 };
     const sig = s.waiting + ':' + s.working;
     if (s.waiting > 0) {
       // 等待用户：立即上报（等待 > 进行中 > 完成）；计数变化（其他会话工作变化）也更新
@@ -642,6 +627,171 @@
     }
   }
 
+  // ---- M12 SSE 会话推送（design §8.10.1）：同源主动推送优先，1Hz 空轮询消除 ----
+  // 仅依赖浏览器内建 EventSource；插件未装/旧版/断流时自动回退下述端点轮询路径。
+  const SSE_ENDPOINT = '/_manager/events';
+  const SSE_ERR_LIMIT = 3; // 连续失败阈值：超过则关闭并回退（EventSource 会自动重连）
+  const SSE_RETRY_GAP_MS = 15000; // 失败后的重试间隔（防空转轰炸；实例重启自愈靠 visible tick）
+  let sse = null;
+  let sseAlive = false;        // open 后未持续失败：attTick 跳过端点快取（0 轮询）
+  let sseEverOpened = false;
+  let sseErrStreak = 0;
+  let sseRetryAt = 0;          // 关闭后最早的(重)建时刻
+  const sseMap = new Map();    // sessionId -> summary（计数源；与 /_manager/sessions 同构）
+
+  function sseCounts() {
+    let working = 0;
+    let waiting = 0;
+    for (const it of sseMap.values()) {
+      if (!it || typeof it !== 'object') continue;
+      if (it.state === 'waiting') waiting += 1;
+      // M13.1 口径（design §8.10 M11 定稿）：有子代理运行的会话归入「进行中」（蓝 n）
+      else if (it.state === 'working' || it.hasActiveChildren === true) working += 1;
+    }
+    return { working, waiting };
+  }
+
+  // M12 摘要数据 → SW storage 镜像（popup 镜像桥，§8.10.1）：只传摘要 items，
+  // 防御性节流（多帧爆发合并为一次写入）。
+  let syncTimer = null;
+  function syncSessionsToSW() {
+    if (syncTimer) return;
+    syncTimer = setTimeout(() => {
+      syncTimer = null;
+      if (!contextAlive()) return;
+      const items = [...sseMap.values()];
+      chrome.runtime.sendMessage({ type: 'sessions-sync', items }).catch(() => { /* SW 休眠竞态：静默 */ });
+    }, 100);
+  }
+
+  function applySseFrame(frame) {
+    if (!frame || typeof frame !== 'object' || typeof frame.event !== 'string') return;
+    if (frame.event === 'snapshot') {
+      const items = frame.data && Array.isArray(frame.data.items) ? frame.data.items : [];
+      sseMap.clear();
+      for (const it of items) if (it && typeof it.sessionId === 'string') sseMap.set(it.sessionId, it);
+    } else if (frame.event === 'upsert') {
+      const s = frame.data && frame.data.session;
+      if (s && typeof s.sessionId === 'string') sseMap.set(s.sessionId, s);
+    } else if (frame.event === 'removed') {
+      const id = frame.data && frame.data.sessionId;
+      if (typeof id === 'string') sseMap.delete(id);
+    } else {
+      return;
+    }
+    syncSessionsToSW(); // 镜像桥与可见性无关：popup 需要时总有最新摘要
+    // 验证诊断探针（verify-cdp 8d 段读取）：真实帧解析进入 sseMap 的证据（size 兜底
+    // 防解析丢帧——M12.2 破案复盘：只测挂钩时「帧永不进入 sseMap」的接收层缺陷
+    // 不会被发现；此探针让真实帧到达可被断言）
+    document.documentElement.setAttribute('data-dshm-sse-count', String(sseMap.size));
+    if (document.hidden) attApply(sseCounts()); // 可见时由 attTick 的 clear 逻辑接管
+  }
+
+  function startSse() {
+    if (sse || !contextAlive()) return;
+    if (Date.now() < sseRetryAt) return; // 失败后节流：等待下一次可见 tick 或宽限期过后再试
+    let instance;
+    try {
+      instance = new EventSource(SSE_ENDPOINT);
+    } catch (_) {
+      return;
+    }
+    sse = instance;
+    // 每实例引用守卫：断连/重连留下的迟到事件（旧实例的 onerror/onopen）只允许
+    // 影响其自身实例——`sse !== instance` 时状态归属已更换（如测试挂钩接管），
+    // 不得复位/置位当前连接状态。
+    instance.onopen = () => {
+      if (sse !== instance) return;
+      sseAlive = true;
+      sseEverOpened = true;
+      sseErrStreak = 0;
+      // 验证诊断探针（verify-cdp 8d 段读取；DOM 属性零业务副作用，与挂钩同款）：
+      // 真实 EventSource 连接建立的唯一证据（M12.2 破案复盘：verify 曾只测挂钩、
+      // 绕过真实连接——此探针让真实路径可被断言）
+      document.documentElement.setAttribute('data-dshm-sse-alive', '1');
+    };
+    // 帧接收（2026-08-26 修复）：插件 SSE 帧全部带 `event:` 头（snapshot/upsert/
+    // removed），按 EventSource 规范它们派发为「命名事件」，永远不会触发 onmessage
+    // （onmessage 只收无 event: 头的默认 message 事件）——只挂 onmessage 会导致
+    // applySseFrame 从未执行、sseMap 恒空、徽标全链路失效（用户实机：蓝 n/黄? 都不亮）。
+    // 真实帧的 e.data 是裸对象（snapshot→{ok,items}、upsert→{session}、removed→
+    // {sessionId}），统一包成 applySseFrame 期望的 {event, data} 形状。
+    const onSseEvent = (name) => (e) => {
+      let payload;
+      try { payload = JSON.parse(e && e.data); } catch (_) { return; }
+      applySseFrame({ event: name, data: payload });
+    };
+    instance.addEventListener('snapshot', onSseEvent('snapshot'));
+    instance.addEventListener('upsert', onSseEvent('upsert'));
+    instance.addEventListener('removed', onSseEvent('removed'));
+    instance.onmessage = onSseEvent('message'); // 兜底：无 event: 头的默认帧（当前插件不发，防御未来）
+    instance.onerror = () => {
+      if (sse !== instance) return;
+      // 未连上（插件未装/旧版）或反复失败：关闭并回退轮询路径（attTick 恢复 1Hz 端点快取）
+      sseErrStreak += 1;
+      if (!sseEverOpened || sseErrStreak >= SSE_ERR_LIMIT) {
+        try { instance.close(); } catch (_) { /* 忽略 */ }
+        sse = null;
+        sseAlive = false;
+        sseRetryAt = Date.now() + SSE_RETRY_GAP_MS;
+      }
+    };
+  }
+
+  // verify-cdp 合成帧注入挂钩：事件处理路径与真实 EventSource 完全一致。
+  // 派发语义（2026-08-26 自动验收实测）：监听器挂在 document（capture）——主世界或
+  // 面板自身世界均可派发，但必须 dispatch 在 **document** 上（window.dispatchEvent 的
+  // 传播路径不经过 document）。verify 采用 CDP 隔离世界 evaluate 确定性派发。
+  // 语义（仅测试注入，生产中不会触发）：挂钩本身就是「模拟 SSE 流存活」——
+  // 声明 sseAlive 并占位 sse 席位（可见分支不再重连、onerror 无从触发），使 attTick
+  // 跳过端点快取，verify 据此确定性断言「SSE 活跃期间 0 轮询」；陈旧实例的事件由
+  // startSse 的实例守卫隔离。验证期在 documentElement 写探针属性供 CDP 读取。
+  document.addEventListener('__whalekeeper_sse_frame', (e) => {
+    const detail = e && e.detail;
+    if (detail && typeof detail === 'object' && detail.__whalekeeper === true) {
+      sseAlive = true;
+      if (!sse) sse = { simulated: true }; // 占位：可见分支不再重连、onerror 无从触发
+      document.documentElement.setAttribute('data-dshm-sse-alive', '1'); // verify 诊断探针
+      applySseFrame(detail.frame);
+    }
+  }, true);
+
+  async function attTick() {
+    if (!contextAlive()) { attStop(); return; }
+    const now = Date.now();
+    if (!document.hidden) {
+      // 页面可见：清除提醒（用户正在看），并复位状态机基线（无需端点数据）；
+      // 顺带尝试（重）建 SSE（插件恢复/实例重启后自愈）
+      if (attActive) { attActive = false; attSend('clear'); }
+      attPhase = 'idle';
+      attIdleSince = 0;
+      attLastSig = '';
+      if (!sse) startSse();
+      return;
+    }
+    // M12：SSE 存活时事件驱动——可见期到达的帧只记账（attApply 按 M8 设计在可见时
+    // 跳过：用户在看，无需上报）；切到后台后必须由本 tick 用当前内存计数补推一次
+    // 状态机——否则「先发帧、后切后台」的真实时序（计划待审期间切标签看徽标）会
+    // 永远错过上报（2026-08-26 用户实测：popup 已见「待确认」、徽标不黄）。
+    if (sseAlive) {
+      attApply(sseCounts()); // 纯内存推进，0 网络
+      return;
+    }
+    if (attBusy) return; // 上一 tick 的端点快取未返回：跳过（hidden 1Hz 下仅偶发）
+    attBusy = true;
+    let s;
+    try {
+      s = await attSnapshot();
+    } catch (_) {
+      s = null; // 极端分支兜底（attSnapshot 内部已自吸收，此处双保险）
+    } finally {
+      attBusy = false;
+    }
+    if (!s) s = { working: 0, waiting: 0 };
+    if (!document.hidden) return; // 快取期间转可见：交给可见分支（下一次 tick 清 clear）
+    attApply(s);
+  }
+
   function attStop() {
     if (attTimer) { clearInterval(attTimer); attTimer = null; }
   }
@@ -651,6 +801,7 @@
   syncThemeMirror(); // 覆盖「面板注入时页面已是深色」场景
   attTimer = setInterval(attTick, ATTENTION_TICK_MS);
   attTick(); // 立即按当前可见性建基线
+  startSse(); // M12：同源 SSE 订阅（端点不可用/插件未装时 onerror 自动回退）
   // M2：同标签导航离开 dsh（tab 不关闭）时主动清除提醒；SW 侧 tabs.onUpdated 同规则兜底
   window.addEventListener('pagehide', () => {
     if (attActive) { attActive = false; attSend('clear'); }

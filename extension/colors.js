@@ -1,7 +1,7 @@
 'use strict';
 
 // ============================================================================
-// DSH Manager — 颜色语义自定义（M10，design §8.12）
+// Whalekeeper — 颜色语义自定义（M10，design §8.12）
 //
 // 零依赖 IIFE，挂 window.DSHColors。popup 与 logs 页共用（脚本标签引入）；
 // 结构同 theme.js：storage 订阅 + documentElement 注入覆盖。

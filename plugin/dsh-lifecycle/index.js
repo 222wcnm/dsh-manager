@@ -8,7 +8,7 @@
 //   - appExit    `ctx.appExit(code)` is a graceful-dispose request: it triggers
 //                the dsh fiber dispose (which closes the listening port) but
 //                does NOT guarantee process exit. Process exit depends on the
-//                event loop draining naturally; the DSH Manager host treats port
+//                event loop draining naturally; the Whalekeeper host treats port
 //                closure as the authoritative signal and falls back to taskkill
 //                when needed. It is NOT a bare process.exit.
 //   - sessions   (optional, read via ctx.get) live session store: `list()`
@@ -18,6 +18,8 @@
 // A route handler receives Node http `IncomingMessage` / `ServerResponse`.
 // The webserver dispatches `await route.handler(req, res)`; a handled exact
 // route answers before the SPA fallback, so these paths never hit `/api`.
+
+import { publishReadiness } from './readiness.js'
 
 export const name = 'dsh-lifecycle'
 export const inject = ['webServer', 'appExit']
@@ -56,6 +58,42 @@ function allow(req) {
   return true
 }
 
+// Route boilerplate shared by every endpoint: fence first, then the method
+// check (405 with Allow). Returns false when the request was answered and the
+// handler must return immediately.
+function routeGuard(req, res, method) {
+  if (!allow(req)) {
+    res.writeHead(403)
+    res.end()
+    return false
+  }
+  if (req.method !== method) {
+    res.writeHead(405, { allow: method })
+    res.end()
+    return false
+  }
+  return true
+}
+
+// Archived-session id set, or null when the registry is absent (no filtering).
+function archivedSessionIds(ctx) {
+  const workspaceRegistry = ctx.get('workspaceRegistry')
+  return (workspaceRegistry && Array.isArray(workspaceRegistry.archivedSessionIds))
+    ? new Set(workspaceRegistry.archivedSessionIds)
+    : null
+}
+
+// Session 事件数组的版本兼容读取（§2.1.1 B5）：
+// dsh < 0.1.2（rc.2 及更早）的 live Session 暴露 `.events` 数组属性；
+// dsh >= 0.1.2（alpha.4 起，rc.1 确认）移除该属性，改为 `snapshotEvents()` 方法。
+// 两者都缺时回退空数组（静默降级，绝不让单条会话拖垮端点）。
+function sessionEvents(session) {
+  if (session == null || typeof session !== 'object') return []
+  if (Array.isArray(session.events)) return session.events
+  if (typeof session.snapshotEvents === 'function') return session.snapshotEvents()
+  return []
+}
+
 // Fold the latest session title out of the event stream. The `session/title`
 // event is appended by the official dsh-session-title service and its payload
 // is already normalized; this plugin reads the event stream directly instead
@@ -76,9 +114,14 @@ function foldTitle(events) {
 // (docs/design.md §8.10 M9.1 spike):
 //   - approval: an `approval/asked` whose id has no matching `approval/decided`
 //     (same blind scan the official api-proxy performs, §8.10 spike);
-//   - question: a `tool/call` of the ask_user_question tool whose callId has no
-//     matching `tool/result` (callId pairing: tool/call.data.callId vs
-//     tool/result.data.message.source.callId).
+//   - question/plan-review: an open tool call awaiting the user — the
+//     `ask_user_question` tool (question) or the `exit_plan_mode` tool
+//     (plan review: dsh-plan-mode blocks on `userQuestions.ask` while the
+//     webui shows the 计划待审 panel; the plan/mode event alone is NOT the
+//     wait signal — it is true from the moment plan writing starts).
+//     callId pairing: tool/call.data.callId vs
+//     tool/result.data.message.source.callId. Ordinary tools (pwsh/edit/...)
+//     running do NOT count — working is not waiting.
 function hasPendingInteraction(events) {
   const asked = new Set()
   const decided = new Set()
@@ -94,7 +137,7 @@ function hasPendingInteraction(events) {
     } else if (event.type === 'tool/call') {
       const callId = event.data?.callId
       const toolName = event.data?.name
-      if (typeof callId === 'string' && toolName === 'ask_user_question') pendingCalls.set(callId, true)
+      if (typeof callId === 'string' && (toolName === 'ask_user_question' || toolName === 'exit_plan_mode')) pendingCalls.set(callId, true)
     } else if (event.type === 'tool/result') {
       const callId = event.data?.message?.source?.callId
       if (typeof callId === 'string') answeredCalls.add(callId)
@@ -131,6 +174,69 @@ function activeChildIds(events) {
   return [...ids]
 }
 
+// ---------------------------------------------------------------------------
+// 子代理活跃索引（M13.1 修复，2026-09-04；design §8.10 契约注记）
+// ---------------------------------------------------------------------------
+// dsh 0.1.1-rc.2 与 0.1.2-rc.1 源码核验（packages/subagent/subagent/src/
+// lifecycle.ts observeRun）：`subagent/start|end` 只经事件总线（scoped
+// dispatch）发布，**从不 append 进父会话的 session log**（全库仅
+// `subagent/descriptor`/`sandbox/mode`/`approval/policy` 等写入子会话 log）。
+// 旧实现从 `sessionEvents()` 配对 → 生产环境 childRuns 恒空、popup 不显示
+// 子代理行（单测用 mock events 数组所以全绿）。修复：以事件总线为权威源，
+// 父子关系经 `session/created` 的 `header.parentSession` 反查（sdk/server.ts
+// 同款模式），并保留会话日志配对 + live 扫描做兼容/冷恢复兜底。
+//
+// 三路信号合并（按 childId 去重）：
+//   ① 事件总线索引（activeByParent：父 → runId → childId）——真实 dsh 权威源；
+//   ② 会话日志配对（activeChildIds）——旧版 dsh / 测试桩兼容；
+//   ③ live 扫描：插件热重载后索引为空时，origin='subagent' 且父会话匹配且
+//      子 agent status==='running' 的会话视为活跃（对齐 dsh list-children 的
+//      activity 判定，control.ts）。
+function liveParentOf(sessions, childId) {
+  for (const s of sessions?.list?.() ?? []) {
+    if (s?.id === childId && s.header?.origin === 'subagent' && typeof s.header.parentSession === 'string') {
+      return s.header.parentSession
+    }
+  }
+  return undefined
+}
+
+function removeChildFromActive(activeByParent, parentId, childId) {
+  const byRun = activeByParent.get(parentId)
+  if (byRun === undefined) return
+  for (const [runId, cid] of byRun) {
+    if (cid === childId) byRun.delete(runId)
+  }
+  if (byRun.size === 0) activeByParent.delete(parentId)
+}
+
+function activeChildRuns(parentId, sessions, agents, childLabelBy, activeByParent) {
+  const ids = new Set()
+  const byRun = activeByParent.get(parentId)
+  if (byRun !== undefined) {
+    for (const childId of byRun.values()) ids.add(childId)
+  }
+  const session = sessions?.get?.(parentId)
+  if (session !== undefined) {
+    for (const childId of activeChildIds(sessionEvents(session))) ids.add(childId)
+  }
+  if (ids.size === 0 && sessions?.list) {
+    for (const s of sessions.list()) {
+      if (s && s.header?.origin === 'subagent'
+        && s.header.parentSession === parentId
+        && agents?.get?.(s.id)?.status === 'running') {
+        ids.add(s.id)
+      }
+    }
+  }
+  return [...ids].map((childId) => ({
+    childId,
+    ...(childLabelBy?.get?.(childId) !== undefined
+      ? { label: childLabelBy.get(childId) }
+      : {}),
+  }))
+}
+
 // Fold the child's task label out of its own `subagent/descriptor` event (the
 // durable, model-hidden composition record). The first descriptor is
 // authoritative; `label` is optional by contract.
@@ -145,19 +251,18 @@ function foldChildLabel(events) {
 
 // Derive the four-state session summary the extension renders
 // (docs/design.md §8.10): waiting > working > completed > idle.
-function summarizeSession(session, agents, childLabelBy) {
-  const events = session.events ?? []
+// `childRuns` is computed by the caller via activeChildRuns() (M13.1: the
+// event-bus index is the authoritative source; see note above).
+function summarizeSession(session, agents, childRuns) {
+  const events = sessionEvents(session)
   const running = agents?.get?.(session.id)?.status === 'running'
   let state = 'idle'
   if (hasPendingInteraction(events)) state = 'waiting'
   else if (running) state = 'working'
   else if (events.some((event) => event.type === 'turn/end')) state = 'completed'
-  const childRuns = activeChildIds(events).map((childId) => ({
-    childId,
-    ...(childLabelBy?.get?.(childId) !== undefined
-      ? { label: childLabelBy.get(childId) }
-      : {}),
-  }))
+  // M13.1：无 turn/end 但仍有活跃子代理（如冷恢复的父会话）→ 归入「进行中」，
+  // 与「有子代理运行归入进行中」定稿一致（否则 popup 按 idle 隐藏整行）。
+  else if (childRuns.length > 0) state = 'working'
   let updatedAt
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const time = events[i]?.time
@@ -179,25 +284,156 @@ function summarizeSession(session, agents, childLabelBy) {
   }
 }
 
+// Live-session child-label index: subagent sessions fold their own
+// `subagent/descriptor` label; unlabelable child runs fall back to no label
+// (the client renders '子代理').
+function buildChildLabelMap(live) {
+  const childLabelBy = new Map()
+  for (const child of live) {
+    if (!child || typeof child !== 'object') continue
+    if (child.header?.origin !== 'subagent') continue
+    const label = foldChildLabel(sessionEvents(child))
+    if (label !== undefined) childLabelBy.set(child.id, label)
+  }
+  return childLabelBy
+}
+
+// The full listing payload shared by GET /_manager/sessions and the SSE
+// snapshot — one derivation, two views, so the poll and push surfaces can
+// never drift (subagent sessions never row; archived sessions without
+// running children are omitted, archive masters WITH running children stay).
+function buildItems(ctx, sessions, agents, activeByParent) {
+  const live = sessions.list()
+  const childLabelBy = buildChildLabelMap(live)
+  const archivedIds = archivedSessionIds(ctx)
+  const items = []
+  for (const session of live) {
+    if (!session || typeof session !== 'object') continue
+    if (session.header?.origin === 'subagent') continue
+    try {
+      const childRuns = activeChildRuns(session.id, sessions, agents, childLabelBy, activeByParent)
+      const summary = summarizeSession(session, agents, childRuns)
+      if (archivedIds !== null && archivedIds.has(session.id) && summary.childRuns.length === 0) continue
+      items.push(summary)
+    } catch {
+      // One malformed session must never take down the whole listing.
+    }
+  }
+  return items
+}
+
+// Semantic diff that gates SSE pushes. `updatedAt` is deliberately excluded:
+// every `assistant/chunk` would otherwise re-push a session that has not
+// actually changed visible state. childRuns is a tiny JSON array — JSON is
+// the simplest exact comparison here.
+function summariesEqual(a, b) {
+  return a.state === b.state
+    && a.title === b.title
+    && a.blank === b.blank
+    && a.cwd === b.cwd
+    && a.hasActiveChildren === b.hasActiveChildren
+    && JSON.stringify(a.childRuns ?? []) === JSON.stringify(b.childRuns ?? [])
+}
+
+// Session-event types that can change a summary's semantic fields. Pushing
+// on any of these and diff-suppressing afterwards keeps the SSE surface at
+// transition granularity while ignoring the high-frequency chunk floods.
+const RELEVANT_EVENT_TYPES = new Set([
+  'approval/asked',
+  'approval/decided',
+  'tool/result',
+  'turn/start',
+  'turn/end',
+  'subagent/start',
+  'subagent/end',
+  'session/title',
+])
+
 export function apply(ctx) {
   // A fresh lifecycle per mount: reset the idempotency guard when the plugin
   // is (re)applied, so a disposed/remounted instance starts clean.
   exiting = false
+  const connections = new Set()
+  const summaryBy = new Map()
+  const pending = new Map()
+  let frameId = 0
+
+  // M13.1 子代理活跃索引（权威源 = 事件总线；见 activeChildRuns 注记）：
+  //   childParentBy  childId → parentId（session/created 的 header.parentSession）
+  //   activeByParent parentId → Map<runId, childId>（subagent/start|end 总线事件）
+  // 无条件维护（不 gate 在 connections.size 上——索引是状态，不是推送）。
+  const childParentBy = new Map()
+  const activeByParent = new Map()
+
+  const sseFrame = (event, data) => {
+    frameId += 1
+    return `id: ${frameId}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  }
+  const broadcast = (event, data) => {
+    if (connections.size === 0) return
+    const line = sseFrame(event, data)
+    for (const res of connections) {
+      if (res.writableEnded || res.destroyed) { connections.delete(res); continue }
+      try { res.write(line) } catch { connections.delete(res) }
+    }
+  }
+
+  // Recompute one live session's summary and push on semantic change only.
+  // Mirrors GET /_manager/sessions exactly: subagent origin yields no row;
+  // archived sessions without running children are omitted (a row that becomes
+  // archived is broadcast as `removed` — the GET surface simply omits it).
+  function recompute(sessionId) {
+    const sessions = ctx.get('sessions')
+    if (sessions === undefined) return
+    const session = sessions.get?.(sessionId)
+    if (session === undefined || session === null) return
+    if (session.header?.origin === 'subagent') return
+    const agents = ctx.get('agents')
+    let summary
+    try {
+      const childRuns = activeChildRuns(sessionId, sessions, agents, buildChildLabelMap(sessions.list()), activeByParent)
+      summary = summarizeSession(session, agents, childRuns)
+    } catch {
+      return
+    }
+    const archivedIds = archivedSessionIds(ctx)
+    if (archivedIds !== null && archivedIds.has(sessionId) && summary.childRuns.length === 0) {
+      if (summaryBy.has(sessionId)) {
+        summaryBy.delete(sessionId)
+        broadcast('removed', { sessionId })
+      }
+      return
+    }
+    const prev = summaryBy.get(sessionId)
+    if (prev !== undefined && summariesEqual(prev, summary)) return
+    summaryBy.set(sessionId, summary)
+    broadcast('upsert', { session: summary })
+  }
+
+  function scheduleRecompute(sessionId) {
+    if (pending.has(sessionId)) return
+    pending.set(sessionId, setTimeout(() => {
+      pending.delete(sessionId)
+      recompute(sessionId)
+    }, 50))
+  }
+
+  // Heartbeat: keeps proxies/NAT from idling the stream closed; unref'd so a
+  // disposed plugin never holds the process open.
+  const heartbeat = setInterval(() => {
+    for (const res of connections) {
+      if (res.writableEnded || res.destroyed) { connections.delete(res); continue }
+      try { res.write(': ping\n\n') } catch { connections.delete(res) }
+    }
+  }, 15000)
+  heartbeat.unref()
+
   const dispose = [
     ctx.webServer.register({
       kind: 'exact',
       path: '/_lifecycle/health',
       handler: async (req, res) => {
-        if (!allow(req)) {
-          res.writeHead(403)
-          res.end()
-          return
-        }
-        if (req.method !== 'GET') {
-          res.writeHead(405, { allow: 'GET' })
-          res.end()
-          return
-        }
+        if (!routeGuard(req, res, 'GET')) return
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({
           ok: true,
@@ -212,16 +448,7 @@ export function apply(ctx) {
       kind: 'exact',
       path: '/_lifecycle/shutdown',
       handler: async (req, res) => {
-        if (!allow(req)) {
-          res.writeHead(403)
-          res.end()
-          return
-        }
-        if (req.method !== 'POST') {
-          res.writeHead(405, { allow: 'POST' })
-          res.end()
-          return
-        }
+        if (!routeGuard(req, res, 'POST')) return
         if (exiting) {
           res.writeHead(409, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ ok: false, error: 'shutdown already in progress' }))
@@ -240,16 +467,7 @@ export function apply(ctx) {
       kind: 'exact',
       path: '/_manager/sessions',
       handler: async (req, res) => {
-        if (!allow(req)) {
-          res.writeHead(403)
-          res.end()
-          return
-        }
-        if (req.method !== 'GET') {
-          res.writeHead(405, { allow: 'GET' })
-          res.end()
-          return
-        }
+        if (!routeGuard(req, res, 'GET')) return
         const sessions = ctx.get('sessions')
         if (sessions === undefined) {
           res.writeHead(500, { 'content-type': 'application/json' })
@@ -257,47 +475,149 @@ export function apply(ctx) {
           return
         }
         const agents = ctx.get('agents')
-        // Official workspace registry (registry-global archive set). Absent on
-        // deployments without the workspace plugin — degrade to no filtering.
-        // Archived sessions are hidden from every grouping surface; an archived
-        // session with RUNNING children still shows (perception wins — the work
-        // is not actually finished), while archive masters without children hide.
-        const workspaceRegistry = ctx.get('workspaceRegistry')
-        const archivedIds = (workspaceRegistry && Array.isArray(workspaceRegistry.archivedSessionIds))
-          ? new Set(workspaceRegistry.archivedSessionIds)
-          : null
-        const live = sessions.list()
-        // Subagent label index: live child sessions (origin='subagent') fold
-        // their own descriptor label; child runs not otherwise labelable fall
-        // back to no label (the client renders '子代理').
-        const childLabelBy = new Map()
-        for (const child of live) {
-          if (!child || typeof child !== 'object') continue
-          if (child.header?.origin !== 'subagent') continue
-          const label = foldChildLabel(child.events ?? [])
-          if (label !== undefined) childLabelBy.set(child.id, label)
-        }
-        const items = []
-        for (const session of live) {
-          if (!session || typeof session !== 'object') continue
-          // Subagent sessions never appear as top-level rows: their running
-          // state is folded into the parent's childRuns (webui hides them too).
-          if (session.header?.origin === 'subagent') continue
-          try {
-            const summary = summarizeSession(session, agents, childLabelBy)
-            if (archivedIds !== null && archivedIds.has(session.id) && summary.childRuns.length === 0) continue
-            items.push(summary)
-          } catch {
-            // One malformed session must never take down the whole listing.
-          }
-        }
+        const items = buildItems(ctx, sessions, agents, activeByParent)
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, items }))
       },
     }),
+    ctx.webServer.register({
+      kind: 'exact',
+      path: '/_manager/events',
+      handler: (req, res) => {
+        if (!routeGuard(req, res, 'GET')) return
+        const sessions = ctx.get('sessions')
+        if (sessions === undefined) {
+          res.writeHead(500, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ ok: false, error: 'sessions service unavailable' }))
+          return
+        }
+        // SSE handshake: snapshot first, then deltas. Reconnect semantics are
+        // deliberately snapshot-based (no Last-Event-ID replay) — the client
+        // rebuilds its view from the snapshot frame and applies deltas on top.
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          'connection': 'keep-alive',
+        })
+        res.write('retry: 3000\n\n')
+        let items = []
+        try {
+          items = buildItems(ctx, sessions, ctx.get('agents'), activeByParent)
+        } catch {
+          items = []
+        }
+        res.write(sseFrame('snapshot', { ok: true, items }))
+        for (const it of items) summaryBy.set(it.sessionId, it)
+        connections.add(res)
+        res.on('close', () => {
+          connections.delete(res)
+        })
+      },
+    }),
+    // M12 event-driven push surface: the Cordis firehose (app-level listeners
+    // receive every session's events — dsh-scope upward-flow semantics, same
+    // pattern the official apiproxy uses). All callbacks are guarded by
+    // `connections.size === 0`, so zero SSE clients means zero work.
+    ctx.on('session/created', (session) => {
+      if (connections.size === 0) return
+      const id = session?.id
+      if (typeof id !== 'string') return
+      recompute(id)
+    }),
+    ctx.on('session/disposed', (session) => {
+      if (connections.size === 0) return
+      const id = session?.id
+      if (typeof id !== 'string') return
+      if (summaryBy.has(id)) {
+        summaryBy.delete(id)
+        broadcast('removed', { sessionId: id })
+      }
+      // A disposed subagent can also change its parent's childRuns — re-check
+      // every live row (few dozen at most; diff suppresses no-ops).
+      for (const sid of [...summaryBy.keys()]) recompute(sid)
+    }),
+    ctx.on('session/event', (session, event) => {
+      if (connections.size === 0) return
+      const type = event?.type
+      if (type === 'tool/call') {
+        // M12.1：exit_plan_mode（计划审查）与 ask_user_question 同属「等待用户」工具
+        if (event?.data?.name !== 'ask_user_question' && event?.data?.name !== 'exit_plan_mode') return
+      } else if (!RELEVANT_EVENT_TYPES.has(type)) {
+        return
+      }
+      const id = session?.id
+      if (typeof id !== 'string') return
+      scheduleRecompute(id)
+    }),
+    ctx.on('agent/status', (payload) => {
+      if (connections.size === 0) return
+      const id = payload?.agent?.id
+      if (typeof id !== 'string') return
+      recompute(id)
+    }),
+    // M13.1 子代理活跃索引（无条件维护——索引是状态，不是推送，不 gate 在
+    // connections.size 上）：session/created 登记 childId → parentId；
+    // subagent/start|end 按 runId 配对维护 activeByParent；dispose 清理。
+    // parentId 缺失时经 liveParentOf 反查（插件热重载后 session/created
+    // 可能已错过；子会话 header.parentSession 是权威关联）。
+    ctx.on('session/created', (session) => {
+      if (session?.header?.origin !== 'subagent') return
+      const parentId = session.header.parentSession
+      if (typeof parentId === 'string' && typeof session.id === 'string') {
+        childParentBy.set(session.id, parentId)
+      }
+    }),
+    ctx.on('session/disposed', (session) => {
+      if (session?.header?.origin !== 'subagent') return
+      const parentId = childParentBy.get(session.id)
+      childParentBy.delete(session.id)
+      if (parentId !== undefined) removeChildFromActive(activeByParent, parentId, session.id)
+    }),
+    ctx.on('subagent/start', (info) => {
+      const childId = info?.id
+      if (typeof childId !== 'string') return
+      const parentId = childParentBy.get(childId) ?? liveParentOf(ctx.get('sessions'), childId)
+      if (parentId === undefined) return
+      childParentBy.set(childId, parentId) // 供 end/dispose 清理复用
+      if (typeof info?.runId === 'string') {
+        let byRun = activeByParent.get(parentId)
+        if (byRun === undefined) {
+          byRun = new Map()
+          activeByParent.set(parentId, byRun)
+        }
+        byRun.set(info.runId, childId)
+      }
+      if (connections.size > 0) recompute(parentId)
+    }),
+    ctx.on('subagent/end', (info) => {
+      const childId = info?.id
+      if (typeof childId !== 'string') return
+      const parentId = childParentBy.get(childId) ?? liveParentOf(ctx.get('sessions'), childId)
+      if (parentId === undefined) return
+      if (typeof info?.runId === 'string') {
+        const byRun = activeByParent.get(parentId)
+        if (byRun !== undefined) {
+          byRun.delete(info.runId)
+          if (byRun.size === 0) activeByParent.delete(parentId)
+        }
+      }
+      if (connections.size > 0) recompute(parentId)
+    }),
+    () => {
+      clearInterval(heartbeat)
+      for (const t of pending.values()) clearTimeout(t)
+      pending.clear()
+      for (const res of connections) {
+        try { res.end() } catch { /* socket already gone */ }
+      }
+      connections.clear()
+    },
   ]
 
+  const disposeReadiness = publishReadiness(ctx)
+  ctx.effect(() => disposeReadiness)
   return () => {
+    disposeReadiness()
     for (const d of dispose) d()
   }
 }

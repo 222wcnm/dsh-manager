@@ -24,6 +24,14 @@
 //     health 与 shutdown 两个 lifecycle 路由都不注册——GET /_lifecycle/health 回
 //     404（宿主 getHealth 判定插件不可达 -> stop 走 taskkill 'force'），
 //     POST /_lifecycle/shutdown 落入 SPA 200 但不退出（宿主不得以状态码判定插件）。
+//   DSH_FAKE_AUTH=1（M13，模拟 dsh ≥ 0.1.2 浏览器启动令牌认证，§2.1.1 B1）：
+//     启动 URL 行携带 `?token=<fake-launch-token>`；GET /（含 query）一律回 401
+//     （无 token/cookie）；GET /manifest.webmanifest 回 200 manifest JSON（公开
+//     静态资产，含 "name": "DeepSeek Harness" 指纹）；lifecycle/manager 路由不受
+//     影响（插件端点不过认证闸门）。用于验证宿主两处探测与 launchUrl 捕获。
+//   DSH_FAKE_LOG_HEADERS=1（M13 回归）：每次请求把方法/URL/Accept-Encoding 头
+//     打到 stdout（`FAKE-REQ GET / ae=ABSENT`），供 smoke 断言探测请求不携带
+//     Accept-Encoding（§2.1.1 B2 约束）。
 // ============================================================================
 
 const http = require('http');
@@ -56,6 +64,25 @@ if (!noManager && process.env.DSH_FAKE_SESSIONS !== undefined) {
     /* 非法 JSON 维持空数组 */
   }
 }
+// M13：模拟 dsh ≥ 0.1.2 启动令牌认证（§2.1.1 B1）——URL 行带 token、GET / 401、
+// /manifest.webmanifest 公开 200 含指纹。lifecycle/manager 路由不受影响。
+const fakeAuth = process.env.DSH_FAKE_AUTH === '1';
+const launchToken = fakeAuth ? 'fake-launch-token-' + process.pid : null;
+// M13 回归：把请求头打到 stdout（无 Accept-Encoding 断言用，§2.1.1 B2）
+const logHeaders = process.env.DSH_FAKE_LOG_HEADERS === '1';
+
+function webUrlLine(actualPort) {
+  const base = 'http://127.0.0.1:' + actualPort;
+  return 'dsh web: ' + (launchToken === null ? base : base + '/?token=' + launchToken);
+}
+
+// Exercise the actual plugin publisher while making HTTP readiness unusable.
+async function publishReady(actualPort) {
+  if (process.env.DSH_FAKE_READY !== '1') return;
+  const { publishReadiness } = await import('../../plugin/dsh-lifecycle/readiness.js');
+  const dispose = publishReadiness({ webServer: { port: actualPort }, get: () => undefined });
+  process.once('exit', dispose);
+}
 
 // 宿主版本检查：node fake-dsh.js --version
 if (process.argv.includes('--version')) {
@@ -73,8 +100,9 @@ if (port === 0 && !exitImmediately) {
   });
   server.listen(0, '127.0.0.1', () => {
     const actual = server.address().port;
+    void publishReady(actual);
     if (!noUrl) {
-      console.log('dsh web: http://127.0.0.1:' + actual);
+      console.log(webUrlLine(actual));
       console.log('fake-dsh listening on 127.0.0.1:' + actual);
     }
     // noUrl：进程保持存活但不打印 URL（宿主动态端口发现将失败 → 占位期 starting）
@@ -82,7 +110,7 @@ if (port === 0 && !exitImmediately) {
   return;
 }
 
-console.log('dsh web: http://127.0.0.1:' + port);
+console.log(webUrlLine(port));
 
 if (exitImmediately) {
   console.log('FAKE-EXIT-IMMEDIATELY: 不启动 HTTP 服务，200ms 后退出');
@@ -95,11 +123,20 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
+  void publishReady(port);
   console.log('fake-dsh listening on 127.0.0.1:' + port);
 });
 
 // 统一路由（M2：health/shutdown 供宿主优雅路径探测；SPA 200 兜底）
 function respond(actualPort, req, res) {
+  if (logHeaders) {
+    console.log(`FAKE-REQ ${req.method} ${req.url} ae=${req.headers['accept-encoding'] ?? 'ABSENT'}`);
+  }
+  if (process.env.DSH_FAKE_READY === '1' && req.url === '/') {
+    res.writeHead(503);
+    res.end('HTTP readiness deliberately unavailable');
+    return;
+  }
   if (!noLifecycle && req.method === 'GET' && req.url === '/_lifecycle/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({
@@ -121,6 +158,26 @@ function respond(actualPort, req, res) {
   if (!noManager && req.method === 'GET' && req.url === '/_manager/sessions') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, items: managerItems }));
+    return;
+  }
+  // M13（§2.1.1 B1）：模拟 dsh ≥ 0.1.2 启动令牌认证——GET /（含 query）无凭据
+  // 一律 401；/manifest.webmanifest 为公开静态资产 200（含指纹）。
+  if (fakeAuth && req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
+    res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('dsh web authentication required; reopen the URL printed by dsh web.\n');
+    return;
+  }
+  if (fakeAuth && req.method === 'GET' && req.url === '/manifest.webmanifest') {
+    res.writeHead(200, { 'content-type': 'application/manifest+json' });
+    res.end(JSON.stringify({
+      id: '/',
+      name: 'DeepSeek Harness',
+      short_name: 'DSH',
+      start_url: '/',
+      scope: '/',
+      display: 'fullscreen',
+      icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+    }));
     return;
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

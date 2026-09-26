@@ -23,6 +23,9 @@ tools/ui-theme/*.png
 .playwright-cli/
 /preview-v*.html
 
+# ---- Playwright 原始录制副产物 ----
+recordings/
+
 # ---- 扩展 ID / 安装副产物（可由 keygen.js / compute-id.js / install.ps1 现场生成）----
 extension/extension-key.json
 native-host/.extension-id.json

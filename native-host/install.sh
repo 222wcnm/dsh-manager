@@ -1,5 +1,5 @@
 #!/bin/sh
-# DSH Manager 安装脚本（Linux / macOS）：生成 Native Messaging 宿主清单并注册
+# Whalekeeper 安装脚本（Linux / macOS）：生成 Native Messaging 宿主清单并注册
 # Chrome / Chromium / Edge / Firefox（用户级，无需 sudo）。
 #
 # 与 install.ps1 同构：
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 echo "================================================"
-echo " DSH Manager 安装脚本（Linux/macOS）"
+echo " Whalekeeper 安装脚本（Linux/macOS）"
 echo " 脚本目录：$SCRIPT_DIR"
 echo " 数据目录：$BASE_DIR"
 if [ "$DRY" = 1 ]; then echo " 运行模式：预演（DryRun）—— 仅打印，不执行任何安装写入"; fi
@@ -157,7 +157,7 @@ const [hostSh, chromeId, geckoId] = process.argv.slice(1);
 const allowed = geckoId ? [chromeId, geckoId] : [chromeId];
 const m = {
   name: "com.dsh.manager",
-  description: "DSH Manager native host — manages the dsh web process lifecycle",
+  description: "Whalekeeper native host — manages the dsh web process lifecycle",
   path: hostSh,
   type: "stdio",
   allowed_origins: ["chrome-extension://" + chromeId + "/"],

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    DSH Manager — 重建发布副本（tools/publish/build-publish.ps1）
+    Whalekeeper — 重建发布副本（tools/publish/build-publish.ps1）
 
 .DESCRIPTION
     按「内容镜像 + 增量提交」方案（docs/publish.md）重建发布目录：
@@ -97,7 +97,7 @@ try {
             git init -b main | Out-Null
         }
         git add -A
-        git -c user.name='DSH Manager' -c user.email='dsh-manager@local' commit -m ('v' + $Version + '：' + $CommitMessage) | Out-Null
+        git -c user.name='Whalekeeper' -c user.email='dsh-manager@local' commit -m ('v' + $Version + '：' + $CommitMessage) | Out-Null
         $fileCount = (git ls-files).Count
         $commitCount = (git log --oneline | Measure-Object -Line).Lines
         $branchInfo = git rev-parse --abbrev-ref HEAD

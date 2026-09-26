@@ -1,6 +1,6 @@
 'use strict';
 // ============================================================================
-// smoke.js — DSH Manager 宿主冒烟测试（native-host/test/）
+// smoke.js — Whalekeeper 宿主冒烟测试（native-host/test/）
 //
 // 运行方式（沙箱内，文件传输模式，无管道捕获）：
 //   node native-host/test/smoke.js
@@ -68,6 +68,12 @@
 //      start（DSH_FAKE_SESSIONS 注入两态会话）-> sessions -> available:true 且
 //      items 原样透传；DSH_FAKE_NO_MANAGER=1（插件未装，SPA 200 非 JSON）->
 //      available:false（降级不抛错）
+//   29 M13 认证兼容（DSH_FAKE_AUTH=1 模拟 dsh ≥ 0.1.2 启动令牌认证，§2.1.1 B1）：
+//      start（auth）-> running（httpProbe 对 401 视为就绪）；run 记录与 status
+//      携带 launchUrl（含 token，url 保持裸 URL）；stop 优雅不受影响；
+//      FAKE-REQ 打点断言探测请求无 Accept-Encoding（§2.1.1 B2）；外部 auth 实例
+//      经 /manifest.webmanifest 指纹发现 -> external；start 同端口 -> PORT_BUSY
+//      且提示外部 dsh
 //
 // 确定性：BASE_ENV 默认注入 DSH_MANAGER_FAKE_PROCESSES='[]' 屏蔽真实进程枚举
 //（本机常驻真实 dsh web 8080 会让 2/8/12 等「空目录」场景误报 external）；
@@ -422,6 +428,46 @@ function scenarioBadRequest() {
   const c = runHost({ id: 's10c', action: 'start', payload: { port: 31910, host: '0.0.0.0' } }, 's10c');
   expect(c && c.ok === false && c.error && c.error.code === 'BAD_REQUEST',
     '10 payload.host=0.0.0.0 -> BAD_REQUEST', JSON.stringify(c));
+  const d = runHost({ id: 's10d', action: 'start', payload: { port: 31910, launchMode: 'unknown-mode' } }, 's10d');
+  expect(d && d.ok === false && d.error && d.error.code === 'BAD_REQUEST',
+    '10 非法 launchMode -> BAD_REQUEST', JSON.stringify(d));
+  const e = runHost({ id: 's10e', action: 'start', payload: { port: 31910, launchMode: 'source', customPath: '' } }, 's10e');
+  expect(e && e.ok === false && e.error && e.error.code === 'BAD_REQUEST',
+    '10 source 模式空 customPath -> BAD_REQUEST', JSON.stringify(e));
+  const f = runHost({ id: 's10f', action: 'start', payload: { port: 31910, launchMode: 'source', customPath: 'D:\\non_existent_dir_123456' } }, 's10f');
+  expect(f && f.ok === false && f.error && f.error.code === 'BAD_REQUEST',
+    '10 source 模式不存在 customPath -> BAD_REQUEST', JSON.stringify(f));
+
+  // 重启预检事务化（先检后杀）：启动后发起携带非法 customPath 的 restart
+  // 必须返回 BAD_REQUEST，且原运行中的旧服务绝不被停机（PID 依然存活，status 依然 running）
+  const sStart = runHost({ id: 's10g', action: 'start', payload: { port: 31910 } }, 's10g');
+  expect(sStart && sStart.ok === true && sStart.result.state === 'running',
+    '10 重启预检基准：start -> running', JSON.stringify(sStart && sStart.result));
+  const oldPid = sStart.result.pid;
+
+  const rFail = runHost({ id: 's10h', action: 'restart', payload: { port: 31910, launchMode: 'source', customPath: 'D:\\non_existent_path_preflight' } }, 's10h');
+  expect(rFail && rFail.ok === false && rFail.error && rFail.error.code === 'BAD_REQUEST',
+    '10 restart 携带非法 customPath -> BAD_REQUEST', JSON.stringify(rFail && rFail.error));
+
+  // 关键断言：预检失败后旧进程依然存活！
+  expect(pidAlive(oldPid), '10 restart 预检失败后旧进程依然存活（未被杀死）', 'oldPid=' + oldPid);
+  const sCheck = runHost({ id: 's10i', action: 'status', payload: {} }, 's10i');
+  expect(sCheck && sCheck.ok === true && sCheck.result.state === 'running' && sCheck.result.pid === oldPid,
+    '10 restart 预检失败后 status 依然为 running 且 pid 未变', JSON.stringify(sCheck && sCheck.result));
+
+  // status 观测性字段断言：包含了 launchMode 与 customPath
+  expect(sCheck.result.launchMode === 'global' && typeof sCheck.result.customPath === 'string',
+    '10 status.result 包含 launchMode 与 customPath 字段', JSON.stringify({ mode: sCheck.result.launchMode, path: sCheck.result.customPath }));
+
+  // 路径清洗验证：带双引号的合法文件路径
+  const cleanPath = runHost({ id: 's10j', action: 'start', payload: { port: 31910, launchMode: 'source', customPath: '"' + FAKE_DSH + '"' } }, 's10j');
+  // 已有实例运行中会报 ALREADY_RUNNING，证明成功通过了路径存在性校验与清洗（否则会抛 BAD_REQUEST 路径不存在）
+  expect(cleanPath && cleanPath.ok === false && cleanPath.error && cleanPath.error.code === 'ALREADY_RUNNING',
+    '10 带双引号的 customPath 成功清洗并通过路径校验', JSON.stringify(cleanPath && cleanPath.error));
+
+  // 清理
+  const sStop = runHost({ id: 's10k', action: 'stop', payload: {} }, 's10k');
+  expect(sStop && sStop.ok === true && sStop.result.state === 'stopped', '10 清理：stop', JSON.stringify(sStop && sStop.result));
   cleanup();
 }
 
@@ -1191,10 +1237,142 @@ async function scenarioSessions() {
 }
 
 // ---------------------------------------------------------------------------
+// M13 场景 29（dsh ≥ 0.1.2 启动令牌认证兼容，§2.1.1 B1）：
+//   DSH_FAKE_AUTH=1 模拟 rc.1——GET / 无凭据回 401、/manifest.webmanifest 公开
+//   200 含指纹、启动 URL 行带 `?token=`。验证：httpProbe 对 401 视为就绪
+//   （start 不误报 START_TIMEOUT、status 不停留在 starting）、httpDshProbe 经
+//   manifest 识别（外部发现 / PORT_BUSY 指纹）、run 记录与 status 携带 launchUrl
+//   （url 保持裸 URL 不含 token）、探测请求不携带 Accept-Encoding（§2.1.1 B2，
+//   DSH_FAKE_LOG_HEADERS 打点回归）。
+// ---------------------------------------------------------------------------
+async function scenarioAuthCompat() {
+  cleanup();
+  const port = 31929;
+  const port2 = 31930;
+  const logFile = path.join(BASE, 'logs', 'dsh-web.log');
+
+  // 29a managed start（auth 变体）：httpProbe 对 401 视为就绪
+  const s1 = runHost({ id: 's29a', action: 'start', payload: { port } }, 's29a', {
+    DSH_FAKE_AUTH: '1',
+    DSH_FAKE_LOG_HEADERS: '1',
+  });
+  expect(s1 && s1.ok === true && s1.result.state === 'running' && s1.result.port === port,
+    '29 start（auth）-> running（httpProbe 401 视为就绪）', JSON.stringify(s1 && s1.result));
+  const rec1 = readRunFile();
+  expect(rec1 && typeof rec1.launchUrl === 'string' && rec1.launchUrl.indexOf('?token=') !== -1,
+    '29 run 记录含 launchUrl（带 token）', rec1 ? String(rec1.launchUrl) : '缺失');
+  expect(rec1 && Number.isInteger(rec1.pid) && rec1.port === port,
+    '29 run 记录 pid/port 正确', rec1 ? JSON.stringify({ pid: rec1.pid, port: rec1.port }) : '缺失');
+
+  // 29b status：launchUrl 携带、url 保持裸 URL
+  const s2 = runHost({ id: 's29b', action: 'status', payload: {} }, 's29b');
+  expect(s2 && s2.ok === true && s2.result.state === 'running',
+    '29 status（auth）-> running', JSON.stringify(s2 && s2.result));
+  expect(s2 && s2.result && typeof s2.result.launchUrl === 'string'
+    && s2.result.launchUrl.startsWith('http://127.0.0.1:' + port + '/?token='),
+    '29 status.launchUrl 正确（含 token）', s2 && s2.result && String(s2.result.launchUrl));
+  expect(s2 && s2.result && s2.result.url === 'http://127.0.0.1:' + port
+    && String(s2.result.url).indexOf('token') === -1,
+    '29 status.url 仍为裸 URL（不含 token）', s2 && s2.result && String(s2.result.url));
+
+  // 29c 优雅停止不受认证影响（lifecycle 路由不过闸门）
+  const s3 = runHost({ id: 's29c', action: 'stop', payload: {} }, 's29c');
+  expect(s3 && s3.ok === true && s3.result.state === 'stopped',
+    '29 stop（auth）-> stopped', JSON.stringify(s3 && s3.result));
+  expect(!(await portOpen(port, 2000)), '29 端口已关闭', '');
+
+  // 29d 无 Accept-Encoding 回归（fake-dsh 打点：FAKE-REQ ... ae=ABSENT）
+  let raw = '';
+  try { raw = fs.readFileSync(logFile, 'utf8'); } catch (_) { /* 日志缺失 */ }
+  const reqLines = raw.split('\n').filter((l) => l.indexOf('FAKE-REQ ') === 0);
+  const badAe = reqLines.filter((l) => !/ ae=ABSENT(?: |$)/.test(l));
+  expect(reqLines.length > 0 && badAe.length === 0,
+    '29 探测请求均未携带 Accept-Encoding（ae=ABSENT）',
+    'FAKE-REQ ' + reqLines.length + ' 行' + (badAe.length ? '；异常: ' + badAe[0] : ''));
+  cleanup();
+
+  // 29e 外部 auth 实例发现：httpDshProbe 经 /manifest.webmanifest 指纹通过
+  const ext = spawn(process.execPath, [FAKE_DSH, '--port', String(port2)], {
+    detached: true,
+    windowsHide: true,
+    stdio: 'ignore',
+    env: Object.assign({}, process.env, { DSH_FAKE_AUTH: '1' }),
+  });
+  const extPids = [ext.pid];
+  try {
+    const okE = await waitPort(port2, 5000);
+    expect(okE, '29 外部 auth fake-dsh 就绪', '');
+    const hooks = {
+      DSH_MANAGER_FAKE_PROCESSES: JSON.stringify([{ pid: ext.pid, cmdline: fakeDshCmdline(port2) }]),
+    };
+    const sE = runHost({ id: 's29e', action: 'status', payload: {} }, 's29e', hooks);
+    expect(okE && sE && sE.ok === true && sE.result.state === 'external' && sE.result.port === port2,
+      '29 外部 auth 实例 -> external（manifest 指纹通过）', JSON.stringify(sE && sE.result));
+    // PORT_BUSY 指纹同样走 manifest：start 同端口 -> PORT_BUSY 且提示外部 dsh
+    const sF = runHost({ id: 's29f', action: 'start', payload: { port: port2 } }, 's29f', hooks);
+    expect(sF && sF.ok === false && sF.error && sF.error.code === 'PORT_BUSY' && /dsh/.test(sF.error.message || ''),
+      '29 start 同端口（auth 外部）-> PORT_BUSY 且提示外部 dsh', JSON.stringify(sF && sF.error));
+  } finally {
+    await shutdownExternal(port2);
+    await waitPidGone(ext.pid, 5000);
+    cleanup(extPids);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// M13 phase 2: ready file provides PID/port even without a URL line or HTTP readiness.
+async function scenarioReadiness() {
+  const env = { DSH_FAKE_READY: '1', DSH_FAKE_NO_URL: '1', DSH_FAKE_LOG_HEADERS: '1' };
+  let previousId;
+  for (const port of [31930, 0]) {
+    const s = runHost({ id: 'ready-start', action: 'start', payload: { port } }, 'ready-start', env);
+    expect(s?.ok && s.result.state === 'running', '30 ready file starts with HTTP 503, port=' + port);
+    if (!s?.ok) throw new Error('readiness start failed: ' + JSON.stringify(s));
+    const rec = readRunFile();
+    const file = path.join(BASE, 'ready', 'dsh-web.json');
+    const signal = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(rec.launchId === signal.launchId && rec.launchId !== previousId,
+      '30 launch identity is unique and persisted');
+    previousId = rec.launchId;
+    expect(signal.pid === rec.pid && signal.port === rec.port && rec.port > 0,
+      '30 plugin PID and actual port match run record');
+    const logFile = path.join(BASE, 'logs', 'dsh-web.log');
+    const before = fs.readFileSync(logFile, 'utf8').length;
+    const status = runHost({ id: 'ready-status', action: 'status' }, 'ready-status', env);
+    expect(status?.result?.state === 'running' && status.result.lifecycle === true
+      && status.result.health.pid === rec.pid, '30 status uses plugin health');
+    expect(!fs.readFileSync(logFile, 'utf8').slice(before).includes('FAKE-REQ'),
+      '30 fresh readiness status sends zero HTTP requests');
+    const stop = runHost({ id: 'ready-stop', action: 'stop' }, 'ready-stop', env);
+    expect(stop?.ok && stop.result.state === 'stopped', '30 readiness instance stops');
+    await waitPidGone(rec.pid, 5000);
+    expect(!fs.existsSync(file), '30 normal exit removes readiness file');
+    cleanup();
+  }
+}
+
+// Source mode passes a fixed, host-owned patch before Web runtime flags.
+async function scenarioSourceOverlay() {
+  const port = 31931;
+  const response = runHost({ id: 'source-start', action: 'start', payload: {
+    port, launchMode: 'source', customPath: FAKE_DSH,
+  } }, 'source-start', { DSH_BIN_STUB: '' });
+  expect(response?.ok && response.result.state === 'running',
+    '31 source 模式可从指定脚本启动', JSON.stringify(response && response.error));
+  const patchFile = path.join(BASE, 'run', 'source-no-ssh.patch.yml');
+  expect(fs.readFileSync(patchFile, 'utf8') === '- id: mcp-ssh\n  disabled: true\n',
+    '31 覆盖文件只禁用 mcp-ssh');
+  const record = readRunFile();
+  expect(record?.cmdline.includes('--profile web --patch ' + patchFile + ' --host 127.0.0.1'),
+    '31 --patch 位于 Web 参数之前', record && record.cmdline);
+  const stop = runHost({ id: 'source-stop', action: 'stop' }, 'source-stop');
+  expect(stop?.ok && stop.result.state === 'stopped', '31 source 模式可停止');
+}
+
 // 主流程
 // ---------------------------------------------------------------------------
 async function main() {
-  console.log('=== DSH Manager 宿主冒烟测试 ===');
+  console.log('=== Whalekeeper 宿主冒烟测试 ===');
   console.log('root  =', ROOT);
   console.log('base  =', BASE);
   console.log('stub  =', FAKE_DSH);
@@ -1247,6 +1425,12 @@ async function main() {
   try { await scenarioCarrierLaunch(); } catch (e) { console.log('  场景 27 异常:', e.message); }
   cleanup();
   try { await scenarioSessions(); } catch (e) { console.log('  场景 28 异常:', e.message); }
+  cleanup();
+  try { await scenarioAuthCompat(); } catch (e) { console.log('  场景 29 异常:', e.message); }
+  cleanup();
+  try { await scenarioReadiness(); } catch (e) { record('readiness', '场景 30 异常', false, e.message); }
+  cleanup();
+  try { await scenarioSourceOverlay(); } catch (e) { record('source', '场景 31 异常', false, e.message); }
   cleanup();
 
   const failed = results.filter((r) => !r.ok);

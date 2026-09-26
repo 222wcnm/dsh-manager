@@ -1,6 +1,6 @@
 'use strict';
 
-// DSH Manager — background service worker
+// Whalekeeper — background service worker
 //
 // 职责（docs/design.md §8.3）：
 //   1. 串行化 native 调用：模块级 promise 链，一次只允许一个 connectNative 连接；
@@ -21,6 +21,8 @@ const NATIVE_HOST = 'com.dsh.manager';
 const DEFAULT_SETTINGS = {
   port: 3080,
   profile: 'web',
+  launchMode: 'global', // 'global' | 'npx' | 'source'
+  customPath: '',       // 本地源码根目录或 bin.js 路径（launchMode === 'source' 时有效）
   autoOpen: true,
   badgeInterval: 30, // 秒；chrome.alarms 最小周期 0.5 分钟（30s）
   attention: true,   // M8：徽标提醒「该点回来看看了」（design §8.9）
@@ -63,6 +65,11 @@ const ACTION_TIMEOUT_MS = {
 const ATTENTION_STORE_KEY = 'attentionMap';
 const ATTENTION_TTL_MS = 4 * 3600 * 1000; // 4h 兜底防僵尸键（正常由 clear/onRemoved/onStartup 清理）
 const ATTENTION_KINDS = { idle: 1, working: 1, waiting: 1, done: 1 };
+// M12 popup 镜像桥（design §8.10.1）：面板 SSE 事件流 → storage 镜像（摘要 only）
+const SESSIONS_CACHE_KEY = 'sessionsCache';
+const SESSIONS_CACHE_MAX = 50; // 防御性上限（与宿主侧一致）；只存摘要 items，不存内容
+let sessionsCache = {};        // { [port]: { items, at } } — 内存镜像，storage 为事实源
+let sessionsCacheTimer = null; // 多帧爆发合并写（200ms 防抖）
 // 会话状态层徽标：文字色显式白（徽标字符可见）；底色由 colorMap 运行时覆盖（M10），
 // 此为无 colorMap（旧数据）时的兜底——M10.1 定稿：waiting 黄 / done（完成提醒）绿 / working 蓝
 const SESSION_BADGES = {
@@ -119,6 +126,8 @@ function getSettings() {
 
 // 本地健康探测：GET http://127.0.0.1:<port>/，1.5s 超时；
 // 任何 HTTP 响应码都算 up；fetch 抛错 -> false。
+// M13（§2.1.1 B1）：dsh ≥ 0.1.2 起 GET / 无凭据返回 401——fetch 仍正常 resolve，
+// 天然视为 up（401 恰证明 dsh 认证中间件已挂载），无需特判。
 async function probePort(port) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
@@ -273,14 +282,71 @@ async function clearAttentionForPort(port) {
       removed = true;
     }
   }
+  // M12：实例失活 → 同步清该端口镜像（popup 侧无陈旧摘要可渲染；保底 native 轮询）
+  if (sessionsCache[String(port)]) {
+    delete sessionsCache[String(port)];
+    removed = true;
+  }
   if (removed) {
     attentionCache = pruneAttention(attentionCache);
     try {
-      await chrome.storage.local.set({ [ATTENTION_STORE_KEY]: attentionCache });
+      await chrome.storage.local.set({
+        [ATTENTION_STORE_KEY]: attentionCache,
+        [SESSIONS_CACHE_KEY]: sessionsCache,
+      });
     } catch (_) { /* 同上：缓存正确，onChanged 收敛 */ }
     applyBadge();
   }
   return removed;
+}
+
+// ---------------------------------------------------------------------------
+// M12 会话镜像桥（sessions-sync）：面板 SSE 事件流 → storage.sessionsCache
+// ---------------------------------------------------------------------------
+
+// 规范化：只保留合法端口与数组条目（摘要 items ≤50，防御脏数据）
+function sanitizeSessionsCache(map) {
+  const out = {};
+  for (const key of Object.keys(map || {})) {
+    const port = Number(key);
+    const e = map[key];
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+    if (!e || typeof e !== 'object' || !Array.isArray(e.items)) continue;
+    out[String(port)] = {
+      items: e.items.slice(0, SESSIONS_CACHE_MAX),
+      at: Number(e.at) || Date.now(),
+    };
+  }
+  return out;
+}
+
+function scheduleSessionsCacheWrite() {
+  if (sessionsCacheTimer) return;
+  sessionsCacheTimer = setTimeout(() => {
+    sessionsCacheTimer = null;
+    chrome.storage.local.set({ [SESSIONS_CACHE_KEY]: sessionsCache }).catch(() => { /* SW 竞态：静默 */ });
+  }, 200);
+}
+
+// M12：面板上报摘要 items（只读摘要元数据，不读消息内容——§12.2/§8.10.1 边界）。
+// 与 attention 同款 L3 校验：仅带 sender.tab 且 URL 为 dsh 回环页；端口从 tab.url 解析。
+async function handleSessionsSync(msg, sender) {
+  const tabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : null;
+  if (!tabId) return;
+  const tabUrl = sender.tab.url;
+  if (typeof tabUrl !== 'string' || !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(tabUrl)) return;
+  const port = portFromUrl(tabUrl);
+  if (!port) return;
+  const items = Array.isArray(msg.items) ? msg.items.slice(0, SESSIONS_CACHE_MAX) : [];
+  sessionsCache[String(port)] = { items, at: Date.now() };
+  scheduleSessionsCacheWrite();
+}
+
+// 启动/唤醒时载入既有镜像（供 popup 立即渲染；SW 重建后由面板下一帧同步自愈）
+function loadSessionsCacheOnce() {
+  chrome.storage.local.get({ [SESSIONS_CACHE_KEY]: {} }, (d) => {
+    sessionsCache = sanitizeSessionsCache((d && d[SESSIONS_CACHE_KEY]) || {});
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +472,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // M8 徽标提醒：content script 上报（页面后台时 工作完成/等待用户）
   if (msg.type === 'attention') {
     handleAttention(msg, sender); // 无需应答；失败静默（panel.js 侧不 await 结果）
+    return false;
+  }
+
+  // M12 会话镜像：面板 SSE 事件流 → storage.sessionsCache（popup 镜像桥）
+  if (msg.type === 'sessions-sync') {
+    handleSessionsSync(msg, sender);
     return false;
   }
 
@@ -557,16 +629,20 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.storage.local.set({ settings: merged });
   });
   // M8：扩展重载/更新后旧 content script 成为孤儿（无法再发 clear），清空旧提醒
+  // M12：镜像同步清理（面板重注入后经 SSE 快照自愈）
   attentionCache = {};
-  chrome.storage.local.set({ [ATTENTION_STORE_KEY]: {} });
+  sessionsCache = {};
+  chrome.storage.local.set({ [ATTENTION_STORE_KEY]: {}, [SESSIONS_CACHE_KEY]: {} });
   ensureBadgeAlarm();
   refreshBadge();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   // M8：浏览器重启后的旧提醒无意义（标签恢复后 content script 会按新状态重新判定）
+  // M12：镜像同步清理（同上）
   attentionCache = {};
-  chrome.storage.local.set({ [ATTENTION_STORE_KEY]: {} });
+  sessionsCache = {};
+  chrome.storage.local.set({ [ATTENTION_STORE_KEY]: {}, [SESSIONS_CACHE_KEY]: {} });
   ensureBadgeAlarm();
   refreshBadge();
 });
@@ -591,4 +667,5 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // SW 被唤醒（如用户重新加载扩展）时立即刷新一次徽标
 loadAttentionOnce(); // M8：先载入提醒镜像（回调内 applyBadge），再补服务态
+loadSessionsCacheOnce(); // M12：会话镜像（popup 打开时即时可渲染）
 refreshBadge();

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    DSH Manager 安装脚本：生成 Native Messaging 宿主清单并注册 Chrome / Edge / Firefox。
+    Whalekeeper 安装脚本：生成 Native Messaging 宿主清单并注册 Chrome / Edge / Firefox。
 
 .DESCRIPTION
     1. 前置检查 node 与 dsh 是否可用（仅存在性检查；版本检查留给宿主 ping，
@@ -88,7 +88,7 @@ function ConvertTo-JsonString {
 }
 
 Write-Host '================================================' -ForegroundColor Cyan
-Write-Host ' DSH Manager 安装脚本' -ForegroundColor Cyan
+Write-Host ' Whalekeeper 安装脚本' -ForegroundColor Cyan
 Write-Host (' 脚本目录：' + $ScriptDir)
 Write-Host (' 数据目录：' + $Base)
 if ($DryRun) {
@@ -244,7 +244,7 @@ $allowedExtensionsLine = if ($GeckoId) {
 $manifestLines = @(
     '{',
     '  "name": "com.dsh.manager",',
-    '  "description": "DSH Manager native host — manages the dsh web process lifecycle",',
+    '  "description": "Whalekeeper native host — manages the dsh web process lifecycle",',
     ('  "path": ' + (ConvertTo-JsonString $hostCmdPath) + ','),
     '  "type": "stdio",',
     ('  "allowed_origins": ["chrome-extension://' + $ExtensionId + '/"],'),
